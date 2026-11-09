@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto-generate-subtitles"
+description = "Subtitles for a YouTube video or a local file: self-hosted transcription, translation by a local or remote LLM, timed .srt and .vtt files."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+dynamic = ["version"]
+dependencies = []
+
+[project.optional-dependencies]
+claude = ["anthropic"]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+sous-titres = "soustitres.__main__:main"
+sous-titres-web = "soustitres.web.__main__:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "soustitres.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["soustitres*"]
+
+[tool.setuptools.package-data]
+soustitres = ["config.toml"]
+"soustitres.web" = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 160
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+ignore = ["E501", "E741", "B905"]  # lignes longues et noms courts : style du projet ; zip : longueurs déjà garanties

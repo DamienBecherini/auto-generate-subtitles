@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# Vidéos et audio de travail : jamais dans le dépôt
+*.mp4
+*.mkv
+*.webm
+*.m4a
+*.opus
+*.mp3
+*.wav

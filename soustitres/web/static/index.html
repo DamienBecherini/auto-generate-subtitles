@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Génération de sous-titres</title>
+<script>try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23264653'/%3E%3Crect x='6' y='19' width='20' height='3' rx='1.5' fill='%23fff'/%3E%3Crect x='9' y='24' width='14' height='3' rx='1.5' fill='%23fff'/%3E%3C/svg%3E">
+</head>
+<body class="chargement">
+<header>
+  <h1>Génération de sous-titres</h1>
+  <div class="moteurs">
+    <span class="puce" id="puce-transcription" title="Serveur de transcription actif">…</span>
+    <span class="puce" id="puce-traducteur" title="Traducteur actif">…</span>
+    <span class="puce discret" id="puce-ia" hidden></span>
+  </div>
+  <a id="lien-github" class="lien-entete" href="#" target="_blank" rel="noopener" aria-disabled="true" title="Dépôt GitHub : pas encore publié">GitHub</a>
+  <button id="btn-theme" class="secondaire theme" type="button"></button>
+  <button id="btn-reglages" class="secondaire" disabled>Réglages</button>
+  <span class="puce attention process" id="process" hidden></span>
+</header>
+
+<main inert aria-busy="true">
+  <div id="chargement" class="bandeau" role="status"><span class="rond" aria-hidden="true"></span><span id="chargement-texte">Chargement : recherche d'un travail en cours…</span></div>
+  <div id="coupure" class="bandeau" hidden>Le service ne répond plus (il s'arrête après une période d'inactivité). Le relancer depuis le module de la page Nouvel onglet, puis recharger cette page.</div>
+  <div id="dernier-lot" class="bandeau" hidden>
+    <strong id="dernier-lot-titre"></strong>
+    <div class="aide" id="dernier-lot-detail"></div>
+    <div class="actions">
+      <button type="button" class="principal" id="btn-dernier-reprendre">Reprendre le lot</button>
+      <button type="button" class="secondaire" id="btn-dernier-regler" title="Ouvre le lot en pause pour changer le traducteur ou les langues avant de le relancer">Changer les réglages d'abord</button>
+      <button type="button" class="secondaire" id="btn-dernier-ignorer" title="Ne plus le proposer ; son fichier reste disponible par « Reprendre un lot… »">Ignorer</button>
+    </div>
+  </div>
+  <section class="carte" id="saisie">
+    <form id="form-source">
+      <label for="source">Adresse YouTube ou chemin d'une vidéo</label>
+      <div class="ligne">
+        <input id="source" type="text" placeholder="https://www.youtube.com/watch?v=…  ou  chemin d'une vidéo" autocomplete="off" spellcheck="false">
+        <button type="submit" id="btn-go" class="principal">Démarrer</button>
+      </div>
+      <div id="apercu" class="apercu" hidden></div>
+    </form>
+
+    <div id="depot" class="depot">
+      <div class="depot-actions">
+        <strong>Glisser une vidéo ici</strong>
+        <span class="aide">ou</span>
+        <button type="button" id="btn-parcourir" class="secondaire">Parcourir…</button>
+        <button type="button" id="btn-dossier-source" class="secondaire">Dossier…</button>
+        <button type="button" id="btn-reprendre-lot" class="secondaire" title="Relit un fichier sous-titres.lot.json laissé par un lot interrompu">Reprendre un lot…</button>
+      </div>
+      <div class="aide">Une vidéo glissée est copiée dans le dossier de sortie ; avec Parcourir, elle reste où elle est.</div>
+      <div id="depot-progression" class="progression" hidden><div class="barre"></div><span class="texte"></span></div>
+    </div>
+
+    <div id="dossier" class="sous-carte" hidden>
+      <div class="entete">
+        <h2>Dossier</h2>
+        <button type="button" class="secondaire petit" id="btn-dossier-plier">Tout déplier</button>
+        <button type="button" class="secondaire petit" id="btn-dossier-tout">Tout cocher</button>
+        <button type="button" class="secondaire petit" id="btn-dossier-rien">Tout décocher</button>
+        <button type="button" class="secondaire petit" id="btn-dossier-manquants" title="Coche les vidéos auxquelles il manque au moins une des langues de traduction choisies">Cocher celles à faire</button>
+        <button type="button" class="fermer" id="btn-fermer-dossier" aria-label="Fermer">×</button>
+    </div>
+      <div class="aide" id="dossier-racine"></div>
+      <div id="dossier-chargement" class="ligne" hidden>
+        <div id="dossier-progression" class="progression"><div class="barre"></div><span class="texte"></span></div>
+        <button type="button" class="secondaire petit" id="btn-dossier-annuler">Annuler</button>
+      </div>
+      <div id="dossier-lot-existant" class="aide" hidden></div>
+      <div class="cases" style="margin-top:10px">
+        <label class="case">Langue parlée pour toutes <select id="dossier-langue-globale"></select></label>
+        <button type="button" class="secondaire petit" id="btn-dossier-appliquer-langue">Appliquer</button>
+        <span class="aide">puis ajuster vidéo par vidéo ci-dessous (préremplie par l'étiquette de la piste audio quand elle existe)</span>
+    </div>
+      <div id="dossier-arbre" class="arbre"></div>
+    </div>
+
+    <div class="options">
+      <label>Transcription
+        <select id="opt-transcription"></select>
+      </label>
+      <label>Traduction
+        <select id="opt-traducteur"></select>
+      </label>
+      <label>Langue parlée
+        <select id="opt-langue">
+          <option value="">détection automatique</option>
+          <option value="en">anglais</option><option value="fr">français</option>
+          <option value="de">allemand</option><option value="es">espagnol</option><option value="it">italien</option>
+          <option value="pt">portugais</option><option value="nl">néerlandais</option>
+        </select>
+      </label>
+      <div class="large groupe">
+        <span class="aide">Langues de traduction (un fichier par langue, en plus de celui de la langue parlée)</span>
+        <div id="opt-langues" class="cases"></div>
+      </div>
+      <div class="large groupe">
+        <span class="aide">Fichiers de sous-titres posés</span>
+        <div class="cases">
+          <label class="case"><input type="checkbox" id="opt-dest-a-cote"> à côté de la vidéo (son nom + langue : chargés seuls par VLC)</label>
+          <label class="case"><input type="checkbox" id="opt-dest-sortie"> dans le dossier de sortie</label>
+          <span class="aide" id="sortie-rappel" title="Le dossier de sortie sert aussi aux vidéos YouTube téléchargées et aux fichiers de travail (.travail)"></span>
+        </div>
+        <div class="ligne" id="zone-sortie" hidden>
+          <input id="opt-sortie" type="text" spellcheck="false" placeholder="Dossier de sortie">
+          <button type="button" id="btn-dossier" class="secondaire">Parcourir…</button>
+        </div>
+      </div>
+      <label class="case large"><input type="checkbox" id="opt-pause"> <span id="opt-pause-texte">Pause avant la traduction : voir l'estimation du coût, puis choisir le traducteur</span></label>
+      <label class="case large"><input type="checkbox" id="opt-refaire"> Refaire la transcription et la traduction si elles existent</label>
+    </div>
+    <div id="moteur-trad" class="moteur-inline" hidden></div>
+    <div class="actions" id="dossier-actions" hidden>
+      <button type="button" class="principal" id="btn-lancer-lot">Lancer le lot</button>
+      <span class="aide" id="dossier-resume"></span>
+    </div>
+    <datalist id="modeles-claude"><option value="claude-sonnet-5-5"><option value="claude-opus-5-5"><option value="claude-haiku-5-5"></datalist>
+  </section>
+
+  <section class="carte" id="lot" hidden>
+    <div class="entete">
+      <h2>Lot <span class="aide" id="lot-racine"></span></h2>
+      <span class="etat" id="lot-etat" role="status"></span>
+      <button type="button" class="secondaire" id="btn-lot-suspendre" title="S'arrête à la fin de la vidéo en cours ; le fichier de lot permet de reprendre plus tard">Pause</button>
+      <button type="button" class="secondaire" id="btn-lot-reprendre">Reprendre</button>
+      <button type="button" class="secondaire" id="btn-lot-reessayer" title="Remet les vidéos en erreur dans la liste à traiter" hidden>Réessayer</button>
+      <button type="button" class="secondaire danger" id="btn-lot-annuler">Annuler</button>
+    </div>
+    <p class="aide" id="lot-info-pause" hidden></p>
+    <div class="progression" id="lot-progression"><div class="barre"></div><span class="texte"></span></div>
+    <div class="aide" id="lot-fichier"></div>
+    <div id="lot-suspendu" class="pause" hidden>
+      <div><strong>Réglages pour la suite du lot</strong> <span class="aide">Appliqués au clic sur Reprendre, aux vidéos pas encore lancées ; une vidéo déjà en cours finit avec les siens.</span></div>
+      <div class="options">
+        <label>Transcription <select id="lot-susp-transcription"></select></label>
+        <label>Traducteur <select id="lot-susp-traducteur"></select></label>
+        <div class="large groupe"><span class="aide">Langues de traduction</span><div id="lot-susp-langues" class="cases"></div></div>
+      </div>
+    </div>
+    <div id="lot-pause" class="pause" hidden>
+      <div><strong>Toutes les vidéos sont transcrites</strong> <span class="aide" id="lot-pause-resume"></span></div>
+      <div class="couts" id="lot-couts"></div>
+      <div class="options">
+        <label>Traducteur <select id="lot-traducteur"></select></label>
+        <div class="large groupe"><span class="aide">Langues de traduction</span><div id="lot-langues" class="cases"></div></div>
+      </div>
+      <div class="actions">
+        <button type="button" class="principal" id="btn-lot-traduire">Traduire tout</button>
+        <button type="button" class="secondaire" id="btn-lot-sans-traduire">Terminer sans traduire</button>
+        <span class="aide" id="lot-message"></span>
+      </div>
+    </div>
+    <ul id="lot-videos" class="historique"></ul>
+  </section>
+
+  <section class="carte" id="tache" hidden>
+    <div class="entete">
+      <h2 id="tache-titre">Tâche</h2>
+      <span class="etat" id="tache-etat" role="status"></span>
+      <button id="btn-annuler" class="secondaire danger">Annuler</button>
+    </div>
+    <ol class="etapes" id="etapes">
+      <li data-etape="source">Source</li>
+      <li data-etape="transcription">Transcription</li>
+      <li data-etape="decoupe">Découpe</li>
+      <li data-etape="traduction">Traduction</li>
+      <li data-etape="fin">Fichiers</li>
+    </ol>
+    <div id="pause" class="pause" hidden>
+      <div><strong id="pause-titre">En pause avant la traduction</strong> <span class="aide" id="pause-resume"></span></div>
+      <div class="couts" id="pause-couts"></div>
+      <div class="options">
+        <label>Traducteur <select id="pause-traducteur"></select></label>
+        <div class="large groupe"><span class="aide">Langues de traduction</span><div id="pause-langues" class="cases"></div></div>
+      </div>
+      <div class="actions">
+        <button type="button" class="principal" id="btn-traduire">Traduire</button>
+        <button type="button" class="secondaire" id="btn-sans-traduire" title="Pose seulement les sous-titres dans la langue parlée">Terminer sans traduire</button>
+        <span class="aide" id="pause-message"></span>
+      </div>
+    </div>
+    <div id="resultat" class="resultat" hidden></div>
+    <pre id="journal" class="journal"><span id="journal-texte"></span><span id="journal-minuteur" class="minuteur"></span></pre>
+  </section>
+
+  <section class="carte" id="historique-carte">
+    <div class="entete"><h2>Historique</h2><button type="button" class="secondaire petit" id="btn-historique" hidden>Voir plus</button></div>
+    <ul id="historique" class="historique"></ul>
+  </section>
+</main>
+
+<dialog id="dlg-reglages">
+  <form method="dialog" id="form-reglages">
+    <div class="entete"><h2>Réglages</h2><button type="button" class="fermer" id="btn-fermer-reglages" aria-label="Fermer">×</button></div>
+    <p class="aide">Les clés ne sont jamais saisies ici : une référence <code>env:&lt;NOM&gt;</code> (variable d'environnement), <code>file:&lt;chemin&gt;</code> (fichier qui contient la clé) ou <code>sops:&lt;fichier&gt;#&lt;NOM&gt;</code> (si sops est installé).</p>
+
+    <h3>Général</h3>
+    <div class="grille">
+      <label>Dossier de sortie <input type="text" id="cfg-sortie"></label>
+      <label>Langue parlée par défaut <input type="text" id="cfg-langue" placeholder="vide = détection"></label>
+      <label>Commande yt-dlp (JSON) <input type="text" id="cfg-youtube"></label>
+      <label>Sous-titres par lot de traduction <input type="number" id="cfg-lot" min="1" max="100"></label>
+      <label>Arrêt du service après (minutes sans activité, 0 = jamais) <input type="number" id="cfg-inactivite" min="0" max="10080"></label>
+    </div>
+
+    <h3>Serveurs de transcription <button type="button" class="secondaire petit" id="btn-ajout-transcription">Ajouter</button></h3>
+    <div id="liste-transcriptions" class="moteurs-liste"></div>
+
+    <h3>Traducteurs <button type="button" class="secondaire petit" id="btn-ajout-traducteur">Ajouter</button></h3>
+    <div id="liste-traducteurs" class="moteurs-liste"></div>
+
+    <h3>Nettoyage du dossier de travail <span class="aide">(<code>&lt;sortie&gt;/.travail/&lt;nom&gt;/</code>, à la fin de chaque tâche)</span></h3>
+    <div class="cases">
+      <label class="case"><input type="checkbox" id="cfg-net-audio"> Audio extrait <span class="aide" data-bilan="audio"></span></label>
+      <label class="case"><input type="checkbox" id="cfg-net-sous-titres"> Copies .srt/.vtt <span class="aide" data-bilan="sous_titres"></span></label>
+      <label class="case"><input type="checkbox" id="cfg-net-transcription"> Transcription et traductions brutes (.json) <span class="aide" data-bilan="transcription"></span></label>
+      <label class="case"><input type="checkbox" id="cfg-net-journaux"> Journaux <span class="aide" data-bilan="journaux"></span></label>
+      <label class="case">de plus de <input type="number" id="cfg-net-age" min="0" max="8760" style="width:70px"> h (purgés au démarrage de l'interface)</label>
+    </div>
+    <div class="actions">
+      <button type="button" class="secondaire petit" id="btn-nettoyer">Nettoyer maintenant</button>
+      <span class="aide" id="nettoyage-retour">Applique les cases ci-dessus à tous les dossiers de travail (journaux : seulement les plus vieux).</span>
+    </div>
+
+    <h3>Mise en forme des sous-titres</h3>
+    <div class="grille">
+      <label>Caractères par ligne <input type="number" id="cfg-cpl" min="20" max="80"></label>
+      <label>Lignes <input type="number" id="cfg-lignes" min="1" max="3"></label>
+      <label>Durée max (s) <input type="number" id="cfg-dmax" step="0.5" min="2" max="12"></label>
+      <label>Durée min (s) <input type="number" id="cfg-dmin" step="0.1" min="0.3" max="3"></label>
+      <label>Pause qui coupe (s) <input type="number" id="cfg-pause" step="0.1" min="0.2" max="3"></label>
+      <label>Lecture (car./s) <input type="number" id="cfg-cps" min="8" max="30"></label>
+    </div>
+
+    <div class="pied">
+      <span id="reglages-message" class="aide"></span>
+      <button type="button" class="secondaire" id="btn-annuler-reglages">Annuler</button>
+      <button type="button" class="principal" id="btn-enregistrer-reglages">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<template id="tpl-transcription">
+  <div class="moteur">
+    <div class="grille">
+      <label>Id <input type="text" data-champ="id"></label>
+      <label>Nom <input type="text" data-champ="nom"></label>
+      <label>URL <input type="text" data-champ="url" placeholder="http://hôte:8000"></label>
+      <label>Clé (référence) <input type="text" data-champ="cle" placeholder="env:NOM, file:chemin, sops:…#NOM ou vide"></label>
+      <label>Vitesse (s d'audio par seconde de calcul) <input type="text" data-champ="vitesse" placeholder="vide = temps non annoncé"></label>
+      <label class="large">Commande locale (JSON, vide = serveur distant) <input type="text" data-champ="commande"></label>
+      <label>Dossier de la commande <input type="text" data-champ="dossier"></label>
+    </div>
+    <div class="actions">
+      <label class="case"><input type="radio" name="transcription-active" data-champ="actif"> Actif</label>
+      <button type="button" class="secondaire petit" data-action="tester">Tester</button>
+      <button type="button" class="secondaire petit danger" data-action="supprimer">Supprimer</button>
+      <span class="aide" data-role="retour"></span>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-traducteur">
+  <div class="moteur">
+    <div class="grille">
+      <label>Id <input type="text" data-champ="id"></label>
+      <label>Nom <input type="text" data-champ="nom"></label>
+      <label>Type
+        <select data-champ="type">
+          <option value="openai">API compatible OpenAI (llama.cpp, Ollama, OpenAI, Mistral…)</option>
+          <option value="claude">Claude (API Anthropic)</option>
+          <option value="aucun">Pas de traduction</option>
+        </select>
+      </label>
+      <label>Modèle <input type="text" data-champ="modele"></label>
+      <label>Effort de réflexion (Claude)
+        <select data-champ="effort"><option value="">défaut (low)</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>
+      </label>
+      <label>URL (OpenAI) <input type="text" data-champ="url" placeholder="http://127.0.0.1:8080"></label>
+      <label>Clé (référence) <input type="text" data-champ="cle" placeholder="env:NOM, file:chemin, sops:…#NOM ou vide"></label>
+      <label>Supervision (démarre l'IA locale) <input type="text" data-champ="supervision" placeholder="http://127.0.0.1:8300 ou vide"></label>
+      <label class="case"><input type="checkbox" data-champ="arreter_apres"> Arrêter l'IA locale après la tâche</label>
+    </div>
+    <div class="actions">
+      <label class="case"><input type="radio" name="traducteur-actif" data-champ="actif"> Actif</label>
+      <button type="button" class="secondaire petit" data-action="tester">Tester</button>
+      <button type="button" class="secondaire petit danger" data-action="supprimer">Supprimer</button>
+      <span class="aide" data-role="retour"></span>
+    </div>
+  </div>
+</template>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

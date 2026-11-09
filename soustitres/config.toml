@@ -1,0 +1,94 @@
+# Réglages par défaut du générateur de sous-titres : à ne pas modifier pour une installation. L'interface web
+# (python -m soustitres.web) enregistre vos choix dans le fichier config.json du dossier utilisateur
+# (%LOCALAPPDATA%/sous-titres sous Windows, ~/.config/sous-titres sinon), qui recouvre ce fichier ; la ligne de
+# commande (python -m soustitres) lit les deux.
+#
+# Pas de secret ici. Une clé est une référence, jamais une valeur :
+#   env:NOM                variable d'environnement
+#   file:/chemin/du/fichier   fichier qui contient la clé (droits restreints, hors du dépôt)
+#   sops:<fichier>#<NOM>   fichier chiffré par sops, si sops est installé
+
+sortie = "~/Videos/sous-titres"            # vidéos téléchargées (et fichiers .srt si destination.sortie) ; intermédiaires dans .travail/<nom>/
+langue = ""                                # langue parlée ("" = détection automatique)
+langues_cibles = ["fr"]                    # langues de traduction : un <vidéo>.<code>.srt par langue (la langue parlée est toujours produite)
+transcription_active = "exemple"
+traducteur_actif = "aucun"
+
+[destination]                              # où sont posés les fichiers .srt (au nom de la vidéo + code de langue)
+a_cote = true                              # à côté de la vidéo : VLC et la plupart des lecteurs les chargent seuls
+sortie = false                             # dans le dossier de sortie ci-dessus
+
+[nettoyage]                                # dossier de travail .travail/<nom>/ à la fin de chaque tâche (true = supprimer)
+audio = true                               # piste audio extraite (le plus gros fichier ; refaite en quelques secondes si besoin)
+sous_titres = true                         # copies .srt/.vtt du dossier de travail (gardées si aucune destination n'est cochée)
+transcription = false                      # transcription.json et traduction.<langue>.json : gardés, pour ajouter une langue sans retranscrire
+journaux = false                           # journaux des tâches ; ceux de plus de journaux_age_h heures sont purgés au démarrage de l'interface
+journaux_age_h = 48
+
+# --- Serveurs de transcription -----------------------------------------------------------------------------------
+# API compatible OpenAI : POST /v1/audio/transcriptions, en verbose_json avec les mots horodatés (champ « words »).
+[[transcriptions]]
+id = "exemple"
+nom = "Serveur de transcription local"
+url = "http://127.0.0.1:8000"
+cle = ""
+# Facultatif :
+# vitesse = 10                            # secondes d'audio transcrites par seconde : sert à annoncer le temps restant
+# commande = ["programme", "argument"]    # démarre le serveur à la demande, et l'arrête à la fin
+# dossier = "/chemin/du/serveur"          # dossier courant de cette commande
+
+# --- Traducteurs ---------------------------------------------------------------------------------------------------
+[[traducteurs]]
+id = "local"
+type = "openai"                           # API compatible OpenAI (llama.cpp, Ollama, OpenAI, Mistral, Groq…)
+nom = "Serveur local compatible OpenAI"
+url = "http://127.0.0.1:8080"
+modele = "nom-du-modele"
+cle = ""
+# Facultatif, avec la supervision (page Nouvel onglet) : elle démarre l'IA locale si elle est arrêtée.
+# supervision = "http://127.0.0.1:8300"
+# arreter_apres = true                    # l'arrête à la fin de la tâche si c'est le script qui l'a démarrée
+
+[[traducteurs]]
+id = "claude"
+type = "claude"                           # API Anthropic par le SDK officiel (pip install anthropic)
+nom = "Claude (API Anthropic)"
+modele = "claude-sonnet-5-5"              # bon compromis pour de la traduction ; claude-opus-5-5 pour plus de nuance
+effort = "low"                            # profondeur de réflexion (low, medium, high) : la traduction en demande peu
+cle = "env:ANTHROPIC_API_KEY"
+
+[[traducteurs]]
+id = "aucun"
+type = "aucun"
+nom = "Pas de traduction (sous-titres dans la langue d'origine)"
+
+[youtube]
+# Commande yt-dlp (avec sa configuration habituelle) ; le dossier de sortie ci-dessus remplace celui de la config (-o).
+# Windows avec yt-dlp dans WSL : ["wsl", "-e", "bash", "-lc", 'exec yt-dlp "$@"', "yt-dlp"]
+commande = ["yt-dlp"]
+
+[traduction]
+lot = 25                                  # sous-titres envoyés par requête au modèle
+
+[estimation]                              # coût annoncé avant la traduction (pause) ; mesures du 08/11/2026, prix Anthropic du 06/10/2026
+jetons_entree_par_ligne = 36             # par sous-titre et par langue (consigne + lot + contexte compris)
+jetons_sortie_par_ligne = 23
+secondes_par_ligne_local = 0.6            # durée par sous-titre d'un modèle local, à ajuster selon la machine
+[estimation.prix]                         # dollars par million de jetons : [entrée, sortie]
+"claude-opus-5-5" = [4.0, 20.0]
+"claude-sonnet-5-5" = [2.0, 10.0]
+"claude-haiku-5-5" = [0.10, 0.50]
+
+[sous_titres]
+caracteres_par_ligne = 42
+lignes = 2
+duree_max = 6.0        # secondes : au-delà, la phrase est coupée en plusieurs sous-titres
+duree_min = 1.0        # secondes : un sous-titre reste au moins ce temps (si le suivant laisse la place)
+pause_coupe = 0.6      # secondes de silence entre deux mots : nouvelle « phrase »
+ecart_min = 0.08       # secondes entre la fin d'un sous-titre et le début du suivant
+lecture_cps = 17       # caractères par seconde : durée d'affichage confortable
+
+[web]
+port = 4420
+inactivite_min = 60                       # coupure de l'interface après ce temps sans action ni travail en cours (0 = jamais)
+github = "https://github.com/DamienBecherini/auto-generate-subtitles"   # adresse du dépôt public (lien dans l'en-tête de la page ; grisé tant que vide)
