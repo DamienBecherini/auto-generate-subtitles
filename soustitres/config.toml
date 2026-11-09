@@ -55,6 +55,7 @@ type = "claude"                           # API Anthropic par le SDK officiel (p
 nom = "Claude (API Anthropic)"
 modele = "claude-sonnet-5-5"              # bon compromis pour de la traduction ; claude-opus-5-5 pour plus de nuance
 effort = "low"                            # profondeur de réflexion (low, medium, high) : la traduction en demande peu
+# parallele = 5                           # vidéos d'un lot traduites en même temps (5 par défaut pour Claude, 1 pour une IA locale)
 cle = "env:ANTHROPIC_API_KEY"
 
 [[traducteurs]]
@@ -87,6 +88,13 @@ duree_min = 1.0        # secondes : un sous-titre reste au moins ce temps (si le
 pause_coupe = 0.6      # secondes de silence entre deux mots : nouvelle « phrase »
 ecart_min = 0.08       # secondes entre la fin d'un sous-titre et le début du suivant
 lecture_cps = 17       # caractères par seconde : durée d'affichage confortable
+
+[doublage]                                 # doublage IA de la première langue traduite ; environnement séparé (torch, demucs, omnivoice, soundfile, num2words)
+actif = false
+commande = ["python"]                     # interpréteur de cet environnement ; sous Windows avec WSL : ["wsl", "--", "doublage/.venv/bin/python"]
+modele = "k2-fsa/OmniVoice"               # identifiant Hugging Face, ou dossier local tel que le voit cette commande
+wsl = false                               # true : les chemins Windows sont donnés sous la forme /mnt/<lecteur>/…
+pas = 32                                  # pas de génération : plus = meilleur et plus lent
 
 [web]
 port = 4420

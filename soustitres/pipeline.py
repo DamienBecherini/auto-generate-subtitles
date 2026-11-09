@@ -8,17 +8,19 @@ vidéo et/ou dans le dossier de sortie (table `[destination]`), puis nettoyage d
 Deux phases : `preparer` (source, audio, transcription, sous-titres d'origine) puis `traduire_et_copier`
 (traductions, copies, nettoyage) ; `executer` enchaîne les deux.
 """
+import hashlib
 import json
 import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import config, decoupe, formats, langue, nettoyage, source, traduction, transcription, transcription_locale
+from . import assemblage, config, decoupe, doublage, etapes, formats, glossaire, langue, nettoyage, source, traduction, transcription, transcription_locale
 from .decoupe import Reglages, SousTitre
 
-ETAPES = ["source", "transcription", "decoupe", "traduction", "fin"]
+ETAPES = ["source", "transcription", "decoupe", "relecture", "traduction", "fin", "doublage", "assemblage"]
 DESTINATION_DEFAUT = {"a_cote": True, "sortie": False}
+FICHIER_EMPREINTES = "sous-titres-poses.json"   # dans le dossier de travail : empreinte de chaque .srt tel qu'il a été posé
 
 
 class Annulee(Exception):
@@ -39,6 +41,7 @@ class Demande:
     destination: dict | None = None    # {"a_cote": bool, "sortie": bool} ; None = cfg["destination"]
     nettoyer: bool = True              # applique [nettoyage] au dossier de travail à la fin
     sur_duree: object = None           # rappel appelé avec la durée de l'audio avant de le transcrire (temps restant)
+    glossaire: str | None = None       # fichier des noms validés (voir glossaire.py)
 
 
 @dataclass
@@ -215,11 +218,34 @@ def preparer(d: Demande, journal=print, etape=lambda nom: None, annule=lambda: F
     # 3. Découpe dans la langue d'origine
     etape("decoupe")
     code = langue_voulue or tr.get("language") or langue.detecter(tr.get("text", "")) or "xx"
-    st = decoupe.construire(decoupe.depuis_json(tr["words"]), reglages)
+    mots, corrections = glossaire.corriger_mots(tr["words"], glossaire.charger(d.glossaire))
+    if corrections:
+        journal(f"Glossaire : {corrections} nom(s) corrigé(s)")
+    st = decoupe.construire(decoupe.depuis_json(mots), reglages)
     srt_origine = travail / f"{base}.{code}.srt"
     srt_origine.write_text(formats.srt(st, reglages), encoding="utf-8")
     journal(f"Langue {code} ({langue.nom(code)}) : {len(st)} sous-titres → {srt_origine.name}")
     return Prepare(video, travail, base, code, st, srt_origine, sortie, t_debut)
+
+
+def _empreinte(f: Path) -> str:
+    return hashlib.sha256(f.read_bytes()).hexdigest()
+
+
+def poser_srt(source_srt: Path, cible: Path, empreintes: dict, refaire: bool = False, journal=print):
+    """Copie un .srt à destination, sauf si le fichier présent a été modifié depuis sa création (correction à la main).
+    Un fichier différent sans empreinte connue est gardé aussi : dans le doute, rien n'est écrasé. « Refaire » remplace tout."""
+    nouvelle = _empreinte(source_srt)
+    if cible.exists() and not refaire:
+        actuelle = _empreinte(cible)
+        if actuelle == nouvelle:
+            empreintes[str(cible)] = nouvelle
+            return
+        if actuelle != empreintes.get(str(cible)):
+            journal(f"Sous-titres gardés, modifiés depuis leur création : {cible.name}")
+            return
+    shutil.copyfile(source_srt, cible)
+    empreintes[str(cible)] = nouvelle
 
 
 def traduire_et_copier(d: Demande, p: Prepare, journal=print, etape=lambda nom: None, annule=lambda: False) -> Resultat:
@@ -252,8 +278,11 @@ def traduire_et_copier(d: Demande, p: Prepare, journal=print, etape=lambda nom: 
                         tradr = traduction.creer(m_trad, journal)
                     journal(f"Traduction {p.code} → {cible} ({langue.nom(cible)}) par « {m_trad['nom']} » ({len(textes)} sous-titres)…")
                     t = time.perf_counter()
+                    termes = glossaire.termes_pour(glossaire.charger(d.glossaire), textes, cible)
+                    if termes:
+                        journal(f"Glossaire : {len(termes)} nom(s) transmis à la traduction")
                     traduits = traduction.traduire_textes(tradr, textes, int(cfg.get("traduction", {}).get("lot", 25)),
-                                                          journal, annule=annule, cible=cible)
+                                                          journal, annule=annule, cible=cible, termes=termes)
                     fichier_trad.write_text(json.dumps(traduits, ensure_ascii=False, indent=1), encoding="utf-8")
                     journal(f"Traduit en {time.perf_counter() - t:.0f} s")
                 final = decoupe.scinder_trop_longs([SousTitre(s.debut, s.fin, t) for s, t in zip(p.sous_titres, traduits)], reglages)
@@ -278,15 +307,22 @@ def traduire_et_copier(d: Demande, p: Prepare, journal=print, etape=lambda nom: 
     if not dossiers:
         journal("Aucune destination cochée : les sous-titres restent dans le dossier de travail.")
     toutes_copies = []
+    fichier_empreintes = p.travail / FICHIER_EMPREINTES
+    try:
+        empreintes = json.loads(fichier_empreintes.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        empreintes = {}
     for f in fichiers:
         for dossier in dossiers:
             cible = dossier / f"{p.video.stem}.{f.langue}.srt"
             if cible.resolve() != f.chemin.resolve():
-                shutil.copyfile(f.chemin, cible)
+                poser_srt(f.chemin, cible, empreintes, d.refaire, journal)
                 f.copies.append(cible)
         if f.copies:
             f.chemin = f.copies[0]
         toutes_copies.extend(f.copies)
+    if empreintes:
+        fichier_empreintes.write_text(json.dumps(empreintes, ensure_ascii=False, indent=1), encoding="utf-8")
     for c in toutes_copies:
         journal(f"Sous-titres : {c}")
 
@@ -299,5 +335,47 @@ def traduire_et_copier(d: Demande, p: Prepare, journal=print, etape=lambda nom: 
 
     principal = next((f for f in fichiers if f.traduit), fichiers[0])
     duree = time.perf_counter() - p.debut
-    journal(f"Terminé en {duree:.0f} s. Vidéo : {p.video}")
+    journal(("Sous-titres déjà prêts, rien à refaire." if duree < 5 else f"Sous-titres terminés en {duree:.0f} s.") + f" Vidéo : {p.video}")
     return Resultat(p.video, principal.chemin, p.srt_origine, p.code, principal.nb, principal.traduit, toutes_copies, duree, fichiers)
+
+
+
+def doubler_et_assembler(d: Demande, p: Prepare, r: Resultat, jusqua: str, journal=print, etape=lambda nom: None, annule=lambda: False, remplacer: bool = False) -> dict:
+    """Après la traduction : piste doublée dans la première langue traduite, puis MKV multipiste, qui peut remplacer la vidéo. Renvoie les chemins produits."""
+    if etapes.marque_integration(p.travail).is_file() and not d.refaire:
+        journal("Doublage déjà intégré à la vidéo.")
+        return {}
+    cible = next((f for f in r.fichiers if f.traduit), None)
+    if cible is None:
+        journal("Pas de doublage : aucune traduction disponible.")
+        return {}
+    avec_mkv = etapes.va_jusqua(jusqua, "assemblage")
+    mkv = etapes.chemin_mkv(r.video)
+    ajoutees = 1 + len(r.fichiers)
+    if avec_mkv and mkv.exists() and not d.refaire:
+        journal(f"MKV déjà assemblé : {mkv.name}")
+        return _integrer(p, r.video, mkv, ajoutees, journal) if remplacer else {"mkv": str(mkv)}
+    if annule():
+        raise Annulee()
+    etape("doublage")
+    try:
+        audio = doublage.doubler(d.cfg, r.video, p.travail, r.fichiers[0].chemin, cible.chemin, cible.langue, journal, annule, d.refaire)
+    except doublage.ErreurDoublage:
+        if annule():
+            raise Annulee() from None
+        raise
+    if not avec_mkv:
+        return {"doublage": str(audio)}
+    etape("assemblage")
+    mkv = assemblage.assembler(r.video, audio, cible.langue, r.langue, [(f.langue, f.chemin) for f in r.fichiers], journal, d.refaire)
+    return {"doublage": str(audio), **(_integrer(p, r.video, mkv, ajoutees, journal) if remplacer else {"mkv": str(mkv)})}
+
+
+def _integrer(p: Prepare, video: Path, mkv: Path, ajoutees: int, journal) -> dict:
+    final = assemblage.remplacer_original(video, mkv, ajoutees, journal)
+    if final == mkv:
+        return {"mkv": str(mkv)}
+    marque = etapes.marque_integration(p.travail)
+    marque.parent.mkdir(parents=True, exist_ok=True)
+    marque.write_text(str(final), encoding="utf-8")
+    return {"mkv": str(final), "remplace": True}

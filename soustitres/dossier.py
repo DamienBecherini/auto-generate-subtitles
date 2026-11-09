@@ -19,6 +19,7 @@ from . import source
 EXTENSIONS_VIDEO = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".mpg", ".mpeg", ".ts", ".wmv", ".flv"}
 EXTENSIONS_SOUS_TITRES = {".srt", ".vtt"}
 NOM_LOT = "sous-titres.lot.json"
+SUFFIXE_ASSEMBLE = ".multi.mkv"                # MKV multipiste créé par l'assemblage : ce n'est pas une vidéo à traiter
 _CODE = re.compile(r"^[a-z]{2,3}(?:-[a-zA-Z]{2,4})?$")
 _ETIQUETTES = {"eng": "en", "fre": "fr", "fra": "fr", "ger": "de", "deu": "de", "spa": "es", "ita": "it", "por": "pt", "dut": "nl",
                "nld": "nl", "pol": "pl", "rus": "ru", "jpn": "ja", "chi": "zh", "zho": "zh", "kor": "ko", "ara": "ar", "tur": "tr"}
@@ -79,7 +80,7 @@ def parcourir(racine: Path, recursif: bool = True, annule=lambda: False, progres
         rel = ici.relative_to(racine)
         for nom in noms:
             p = ici / nom
-            if p.suffix.lower() not in EXTENSIONS_VIDEO:
+            if p.suffix.lower() not in EXTENSIONS_VIDEO or nom.lower().endswith(SUFFIXE_ASSEMBLE):
                 continue
             try:
                 taille = p.stat().st_size

@@ -15,7 +15,10 @@
   POST /api/lots {racine, videos: [{chemin, langue}], transcription?, traducteur?, langues?, destination?, sortie?, pause?}
   GET  /api/lots   GET /api/lots/<id>   GET /api/lots/<id>/estimation?langues=
   POST /api/lots/charger {fichier}       relit un sous-titres.lot.json (reprise après coupure) → lot suspendu, à reprendre
-  POST /api/lots/<id>/suspendre | annuler | traduire {traducteur?, langues?} | reprendre {traducteur?, transcription?, langues?, pause?}
+  POST /api/lots/<id>/suspendre | annuler | traduire {traducteur?, langues?, arret?} | reprendre {traducteur?, transcription?, langues?, pause?, arret?}
+  POST /api/lots/<id>/continuer {chemin}   une vidéo jusqu'au bout de ce que le lot doit produire, avant les autres
+  POST /api/lots/<id>/objectif {arret}     traduction (sous-titres seuls) ou assemblage (sous-titres + doublage)
+  GET  /api/lots/<id>/relecture?chemin=   noms à vérifier     POST /api/lots/<id>/valider {decisions: [{transcrit, graphie, francais, accepter}]}
   GET  /api/lots/dernier         lot resté inachevé à la session précédente     POST /api/lots/dernier/oublier
   PUT  /api/fichiers?nom=<nom>   corps = le fichier (glisser-déposer) → copié dans le dossier de sortie
   POST /api/transcription-locale/arreter   coupe le serveur de transcription local démarré d'ici
@@ -39,7 +42,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .. import __version__, config, dossier, langue, nettoyage, source, traduction, transcription, transcription_locale
+from .. import __version__, config, dossier, etapes, langue, nettoyage, source, traduction, transcription, transcription_locale
 from .taches import Gestionnaire
 from .veille import Veille, est_activite
 
@@ -270,6 +273,10 @@ class Requete(BaseHTTPRequestHandler):
                 if not analyse_courante or analyse_courante.id != m.group(1):
                     return self._json(404, {"erreur": "analyse inconnue"})
                 return self._json(200, analyse_courante.vers_dict("videos" in parse_qs(u.query)))
+            m = re.fullmatch(r"/api/lots/([0-9a-f]+)/relecture", u.path)
+            if m:
+                r = gestionnaire.propositions_lot(m.group(1), parse_qs(u.query).get("chemin", [None])[0])
+                return self._json(200, r) if r is not None else self._json(404, {"erreur": "lot inconnu"})
             m = re.fullmatch(r"/api/lots/([0-9a-f]+)(/estimation)?", u.path)
             if m:
                 lot = gestionnaire.lot(m.group(1))
@@ -314,6 +321,8 @@ class Requete(BaseHTTPRequestHandler):
                     options["destination"] = {k: bool(d["destination"].get(k)) for k in ("a_cote", "sortie")}
                 if d.get("pause") is not None:
                     options["pause"] = bool(d["pause"])
+                if d.get("jusqua") == "assemblage":
+                    options.update(jusqua="assemblage", continuer=True, remplacer=bool(d.get("remplacer")))
                 t = gestionnaire.ajouter(options)
                 return self._json(201, t.resume())
             m = re.fullmatch(r"/api/taches/([0-9a-f]+)/traduire", u.path)
@@ -344,9 +353,13 @@ class Requete(BaseHTTPRequestHandler):
                 videos = [v for v in d.get("videos") or [] if v.get("chemin")]
                 if not videos:
                     raise ErreurRequete(400, "aucune vidéo sélectionnée")
-                options = {k: d.get(k) for k in ("transcription", "traducteur", "langues", "destination", "sortie", "pause", "refaire") if d.get(k) is not None}
+                options = {k: d.get(k) for k in ("transcription", "traducteur", "langues", "destination", "sortie", "pause", "refaire", "arret", "relecture", "remplacer") if d.get(k) is not None}
                 if "langues" in options:
                     options["langues"] = langue.normaliser_codes(options["langues"])
+                if options.get("arret") not in (None, *etapes.ARRETS):
+                    raise ErreurRequete(400, "étape d'arrêt inconnue")
+                if options.get("arret") == "validation" or options.get("relecture"):
+                    options["pause"] = True    # les noms proposés se vérifient avant la traduction, quel que soit le réglage de pause
                 return self._json(201, gestionnaire.creer_lot(str(d.get("racine") or Path(videos[0]["chemin"]).parent), videos, options).resume())
             if u.path == "/api/lots/dernier/oublier":
                 gestionnaire.oublier_dernier_lot()
@@ -357,12 +370,25 @@ class Requete(BaseHTTPRequestHandler):
                     return self._json(200, gestionnaire.charger_lot((d.get("fichier") or "").strip().strip('"')).resume())
                 except source.ErreurSource as e:
                     raise ErreurRequete(400, str(e)) from e
-            m = re.fullmatch(r"/api/lots/([0-9a-f]+)/(suspendre|reprendre|annuler|traduire|reessayer)", u.path)
+            m = re.fullmatch(r"/api/lots/([0-9a-f]+)/valider", u.path)
+            if m:
+                r = gestionnaire.valider_noms(m.group(1), self._corps_json().get("decisions") or [])
+                if r is None:
+                    raise ErreurRequete(404, "lot inconnu")
+                return self._json(200, {**r, "lot": gestionnaire.lot(m.group(1)).resume()})
+            m = re.fullmatch(r"/api/lots/([0-9a-f]+)/(suspendre|reprendre|annuler|traduire|reessayer|continuer|objectif)", u.path)
             if m:
                 ident, action = m.groups()
                 if action == "traduire":
                     d = self._corps_json()
-                    ok = gestionnaire.lot_traduire(ident, d.get("traducteur"), d.get("langues"))
+                    if d.get("arret") not in (None, *etapes.ARRETS):
+                        raise ErreurRequete(400, "étape d'arrêt inconnue")
+                    ok = gestionnaire.lot_traduire(ident, d.get("traducteur"), d.get("langues"), d.get("arret"))
+                elif action == "objectif":
+                    d = self._corps_json()
+                    ok = gestionnaire.lot_objectif(ident, d.get("arret") or "", d.get("remplacer"))
+                elif action == "continuer":
+                    ok = gestionnaire.lot_continuer(ident, self._corps_json().get("chemin") or "")
                 elif action == "reessayer":
                     ok = gestionnaire.lot_reessayer(ident, self._corps_json().get("chemin"))
                 elif action == "reprendre":

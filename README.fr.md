@@ -133,6 +133,26 @@ les valeurs par défaut de `soustitres/config.toml` : ce dernier ne contient que
 Chaque étape est sautée si son résultat existe déjà (case « Refaire… » ou `--refaire` pour recommencer) ; une
 vidéo dont l'audio a été nettoyé mais dont `transcription.json` existe n'est ni réextraite ni retranscrite.
 
+Un `.srt` modifié à la main depuis sa création n'est pas écrasé (sauf « Refaire… ») ; le doublage et le MKV utilisent alors cette version.
+
+## Lots : étapes par vidéo
+
+`Transcription → Relecture IA → Validation → Traduction → Doublage → MKV`. Chaque vidéo du lot montre ses étapes par des
+pastilles, relues sur le disque : une étape faite n'est pas refaite, même après un redémarrage.
+
+- Dès le départ, pour une vidéo comme pour un lot : « Sous-titres seulement » ou « Sous-titres + doublage ». Les pastilles, les boutons
+  et les étapes s'y adaptent. Un lot peut changer d'objectif ensuite : passer au doublage ne lance rien avant « Reprendre » ou « Continuer ».
+- « Continuer » fait passer un seul épisode jusqu'au bout de ce que le lot doit produire, avant les autres.
+- La relecture IA (Claude) repère les noms propres déformés. Un nom n'est soumis qu'une fois par lot. Rien n'est corrigé sans
+  validation : les noms acceptés vont dans `sous-titres.glossaire.json` et `transcription.json` n'est jamais réécrit.
+- Le doublage (table `[doublage]` des réglages, désactivé par défaut) clone la voix d'origine phrase par phrase dans la
+  première langue traduite. Il demande un environnement Python séparé avec `torch`, `demucs`, `omnivoice`, `soundfile`,
+  `num2words`, ainsi que `ffmpeg` et une carte graphique (environ 4,3 Go de mémoire vidéo, 8 min 30 pour 30 min de vidéo).
+  Un clonage de voix suppose le droit d'utiliser la voix et le contenu d'origine.
+- Le MKV `<vidéo>.multi.mkv` est créé à côté de la vidéo, sans réencodage et sans toucher à l'original : pistes d'origine,
+  piste doublée et sous-titres de chaque langue. Une option le met à la place de la vidéo, sous le nom `<vidéo>.mkv`, une fois
+  ses pistes et sa durée vérifiées ; l'original part à la corbeille, et sans corbeille disponible les deux fichiers sont gardés.
+
 ## Ligne de commande
 
 ```

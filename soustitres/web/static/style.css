@@ -70,6 +70,14 @@ button:disabled { opacity: .5; cursor: default; }
 .depot-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 10px; }
 .depot-actions .aide { margin-top: 0; }
 .aide { font-size: 13px; color: var(--sourd); }
+.process.multiligne { white-space: normal; border-radius: 12px; }
+.lot-actives { margin-top: 10px; display: grid; gap: 6px; font-size: 13px; }
+.lot-actives .ligne { display: grid; grid-template-columns: minmax(0, 1fr) 90px 92px 90px 130px; gap: 10px; align-items: center; }
+.lot-actives .nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lot-actives .mini { height: 8px; border-radius: 4px; background: var(--bord); overflow: hidden; }
+.lot-actives .mini span { display: block; height: 100%; background: var(--barre); }
+.lot-actives .temps { color: var(--sourd); white-space: nowrap; }
+@media (max-width: 640px) { .lot-actives .ligne { grid-template-columns: minmax(0, 1fr) auto auto; } .lot-actives .mini, .lot-actives .compte { display: none; } }
 .progression { margin-top: 12px; height: 22px; position: relative; border-radius: 6px; background: var(--bord); overflow: hidden; }
 .progression .barre { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--barre); transition: width .2s; }
 .progression .texte { position: relative; display: block; padding: 0 10px; font-size: 12px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -132,6 +140,19 @@ body.chargement main > :not(#chargement) { opacity: .4; }
 .cout-principal { flex-basis: 100%; font-size: 26px; font-weight: 700; line-height: 1.2; color: var(--texte); }
 .pause .couts .choisi { color: var(--texte); font-weight: 600; }
 .etat.en_pause { border-color: var(--attention); }
+.etat.traduit, .etat.a_valider { border-color: var(--attention); }
+.objectif { margin-top: 12px; display: grid; gap: 4px; }
+.lot-objectif { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 13px; }
+.lot-objectif label { display: inline-flex; align-items: center; gap: 8px; }
+.pastilles { display: inline-flex; gap: 3px; flex: none; }
+.pastilles i { width: 9px; height: 9px; border-radius: 50%; background: var(--bord); }
+.pastilles i.faite { background: var(--ok); }
+.validation-liste { max-height: 420px; overflow: auto; border: 1px solid var(--bord); border-radius: 6px; }
+.validation-liste table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.validation-liste th { position: sticky; top: 0; background: var(--carte, var(--fond)); text-align: left; padding: 6px 8px; z-index: 1; }
+.validation-liste td { padding: 4px 8px; border-top: 1px solid var(--bord); vertical-align: top; }
+.validation-liste input[type=text] { width: 100%; min-width: 120px; box-sizing: border-box; }
+.validation-liste .pourquoi { color: var(--sourd); max-width: 380px; }
 .resultat { margin-top: 10px; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--ok); display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 .resultat .chemin { flex-basis: 100%; font-size: 13px; color: var(--sourd); word-break: break-all; }
 .historique { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; }

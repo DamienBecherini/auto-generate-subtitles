@@ -10,6 +10,7 @@ Subtitles for a YouTube video or a video file, in its own language and in the la
 - **Cost before spending.** With a paid translator, the batch stops after transcription and shows the estimated tokens and price for each model.
 - **No retyped work.** Each step is skipped when its result already exists: changing a language or the layout does not transcribe again.
 - **Web page or command line.** The page shows steps, live log and remaining time. It runs on your machine and listens on `127.0.0.1` only.
+- **Subtitles only, or dubbing too.** Choose at the start. Check one episode end to end before running the rest of a batch, and validate AI-corrected names before translating.
 
 ## Quick start
 
@@ -51,6 +52,23 @@ Command line options: `--sortie`, `--langue en` (spoken language), `--langues fr
 The interface and options are in French for now.
 
 File pickers use the system dialog: PowerShell on Windows, `osascript` on macOS, `zenity` or `kdialog` on Linux. Without any of them, type the path in the field.
+
+## Step-by-step batches
+
+`Transcription → AI review → Validation → Translation → Dubbing → MKV`. Each video in a batch shows its steps as dots, read from disk: a finished step is not redone, even after a restart.
+
+- **Choose at the start**, for one video or a batch: *subtitles only*, or *subtitles + dubbing*. The steps and buttons follow. A batch can change its goal later; switching to dubbing starts nothing until you click **Reprendre** or **Continuer**.
+- **Continuer** takes one episode to the end of what the batch must produce, ahead of the others, so you can check it before running the rest.
+- **AI review** (needs a Claude translator, a few cents per video) finds proper names the transcription distorted. Nothing changes without your validation. Accepted names go to `sous-titres.glossaire.json`, and `transcription.json` is never rewritten.
+- A `.srt` you edited by hand is not overwritten, unless you tick the redo option. Dubbing and the MKV then use your version.
+
+### Dubbing (optional, off by default)
+
+It clones the original voice sentence by sentence in the first translated language, keeps the background sound, and needs a graphics card (about 4.3 GB of video memory, and about 8 min 30 for 30 min of video on the machine used for testing). **Only clone a voice and dub content you have the right to use.**
+
+It runs in a separate Python environment with `torch`, `demucs`, `omnivoice`, `soundfile` and `num2words`, plus `ffmpeg`. Set it up in the `[doublage]` table of your settings: `actif`, `commande` (the Python of that environment), `modele` (a Hugging Face id or a local folder), and `wsl = true` if the command goes through WSL.
+
+The result is `<video>.multi.mkv` next to the video: original tracks copied without re-encoding, the dubbed track, and the subtitles of each language. An option puts it in place of the video as `<video>.mkv`, once its tracks and duration are checked. The original goes to the recycle bin. If there is no recycle bin, both files are kept.
 
 ## Settings
 

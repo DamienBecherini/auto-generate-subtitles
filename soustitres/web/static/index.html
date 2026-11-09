@@ -79,6 +79,15 @@
       <div id="dossier-arbre" class="arbre"></div>
     </div>
 
+    <div class="objectif">
+      <span class="aide">Ce que vous voulez obtenir</span>
+      <div class="cases">
+        <label class="case"><input type="radio" name="objectif" value="traduction" checked> Sous-titres seulement</label>
+        <label class="case" id="zone-objectif-doublage"><input type="radio" name="objectif" value="assemblage" id="opt-objectif-doublage"> Sous-titres + doublage</label>
+      </div>
+      <label class="case" id="zone-remplacer" hidden><input type="checkbox" id="opt-remplacer"> Remplacer la vidéo d'origine par le MKV, une fois ses pistes vérifiées (l'original va à la corbeille)</label>
+      <div class="aide" id="note-objectif"></div>
+    </div>
     <div class="options">
       <label>Transcription
         <select id="opt-transcription"></select>
@@ -115,6 +124,7 @@
     </div>
     <div id="moteur-trad" class="moteur-inline" hidden></div>
     <div class="actions" id="dossier-actions" hidden>
+      <label class="case" id="zone-relecture"><input type="checkbox" id="opt-relecture"> Relecture IA des noms propres, à vérifier avant la traduction (Claude, quelques centimes par vidéo)</label>
       <button type="button" class="principal" id="btn-lancer-lot">Lancer le lot</button>
       <span class="aide" id="dossier-resume"></span>
     </div>
@@ -132,6 +142,12 @@
     </div>
     <p class="aide" id="lot-info-pause" hidden></p>
     <div class="progression" id="lot-progression"><div class="barre"></div><span class="texte"></span></div>
+    <div id="lot-actives" class="lot-actives" hidden></div>
+    <div class="lot-objectif" id="lot-zone-objectif" hidden>
+      <label>Ce lot produit <select id="lot-objectif"><option value="traduction">Sous-titres seulement</option><option value="assemblage">Sous-titres + doublage</option></select></label>
+      <label class="case" id="lot-zone-remplacer" hidden><input type="checkbox" id="lot-remplacer"> Remplacer chaque vidéo d'origine par son MKV vérifié (l'original va à la corbeille)</label>
+      <span class="aide" id="lot-note-objectif"></span>
+    </div>
     <div class="aide" id="lot-fichier"></div>
     <div id="lot-suspendu" class="pause" hidden>
       <div><strong>Réglages pour la suite du lot</strong> <span class="aide">Appliqués au clic sur Reprendre, aux vidéos pas encore lancées ; une vidéo déjà en cours finit avec les siens.</span></div>
@@ -143,15 +159,40 @@
     </div>
     <div id="lot-pause" class="pause" hidden>
       <div><strong>Toutes les vidéos sont transcrites</strong> <span class="aide" id="lot-pause-resume"></span></div>
+      <div class="actions" id="lot-a-verifier" hidden>
+        <span id="lot-a-verifier-texte"></span>
+        <button type="button" class="secondaire" id="btn-lot-verifier">Vérifier les noms</button>
+      </div>
       <div class="couts" id="lot-couts"></div>
       <div class="options">
         <label>Traducteur <select id="lot-traducteur"></select></label>
+        <label id="lot-zone-modele" hidden>Modèle <select id="lot-modele"></select></label>
+        <label id="lot-zone-effort" hidden>Effort de réflexion <select id="lot-effort"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>
+        <div class="large aide" id="lot-note-effort" hidden>Estimation mesurée avec l'effort low : un effort supérieur consomme davantage de jetons de sortie, le coût réel sera plus élevé.</div>
         <div class="large groupe"><span class="aide">Langues de traduction</span><div id="lot-langues" class="cases"></div></div>
       </div>
       <div class="actions">
         <button type="button" class="principal" id="btn-lot-traduire">Traduire tout</button>
         <button type="button" class="secondaire" id="btn-lot-sans-traduire">Terminer sans traduire</button>
         <span class="aide" id="lot-message"></span>
+      </div>
+    </div>
+    <div id="validation" class="pause" hidden>
+      <div><strong id="validation-titre"></strong> <span class="aide">Les noms cochés corrigent les sous-titres et guident la traduction. La transcription brute n'est jamais modifiée.</span></div>
+      <div class="actions">
+        <button type="button" class="secondaire petit" id="btn-validation-tout">Tout cocher</button>
+        <button type="button" class="secondaire petit" id="btn-validation-rien">Tout décocher</button>
+      </div>
+      <div class="validation-liste">
+        <table>
+          <thead><tr><th></th><th>Entendu</th><th>Correction</th><th>En français</th><th>Pourquoi</th></tr></thead>
+          <tbody id="validation-lignes"></tbody>
+        </table>
+      </div>
+      <div class="actions">
+        <button type="button" class="principal" id="btn-validation-valider"></button>
+        <button type="button" class="secondaire" id="btn-validation-fermer">Fermer</button>
+        <span class="aide" id="validation-message"></span>
       </div>
     </div>
     <ul id="lot-videos" class="historique"></ul>
@@ -167,8 +208,11 @@
       <li data-etape="source">Source</li>
       <li data-etape="transcription">Transcription</li>
       <li data-etape="decoupe">Découpe</li>
+      <li data-etape="relecture" hidden>Relecture</li>
       <li data-etape="traduction">Traduction</li>
       <li data-etape="fin">Fichiers</li>
+      <li data-etape="doublage" hidden>Doublage</li>
+      <li data-etape="assemblage" hidden>MKV</li>
     </ol>
     <div id="pause" class="pause" hidden>
       <div><strong id="pause-titre">En pause avant la traduction</strong> <span class="aide" id="pause-resume"></span></div>

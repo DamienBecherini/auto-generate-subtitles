@@ -84,6 +84,10 @@ async function charger() {
   majZoneSortie();
   majPauseParDefaut();
   afficherReglagesTraducteur();
+  const voulu = document.querySelector(`input[name=objectif][value=${doublageActif() && config.objectif === "assemblage" ? "assemblage" : "traduction"}]`);
+  voulu.checked = true;
+  majObjectif();
+  $("#opt-relecture").checked = claudeDisponible(); $("#zone-relecture").hidden = !claudeDisponible();
   const github = (config.web || {}).github || "";          // lien grisé tant que le dépôt public n'existe pas
   const lien = $("#lien-github");
   lien.href = github || "#";
@@ -160,7 +164,7 @@ async function majEtat() {
       pIa.textContent = "IA locale : " + ({ pret: "prête", demarrage: "démarrage", arrete: "arrêtée", arret_securite: "arrêt de sécurité", erreur: "erreur" }[e.ia_locale.etat] || e.ia_locale.etat);
       pIa.className = "puce discret " + ({ pret: "ok", demarrage: "attention", erreur: "erreur", arret_securite: "erreur" }[e.ia_locale.etat] || "");
     } else pIa.hidden = true;
-    if (e.tache && !tacheCourante) await suivre(e.tache.id);
+    if (e.tache && !tacheCourante && !modeParallele) await suivre(e.tache.id);
     if (e.lot && !lotCourant) await suivreLot(e.lot.id);
   } catch (err) { console.warn(err); }
 }
@@ -241,16 +245,36 @@ $("#opt-sortie").addEventListener("input", majZoneSortie);
 function optionsTache(source) {
   return { source, transcription: $("#opt-transcription").value, traducteur: $("#opt-traducteur").value,
            langue: $("#opt-langue").value, langues: lireLangues(), sortie: $("#opt-sortie").value.trim(),
-           destination: destinationPage(), refaire: $("#opt-refaire").checked, pause: $("#opt-pause").checked };
+           destination: destinationPage(), refaire: $("#opt-refaire").checked, pause: $("#opt-pause").checked, jusqua: objectifPage(), remplacer: remplacerPage() };
 }
+
+/* Ce que l'on veut obtenir : tout le reste de la page s'y adapte. */
+const objectifPage = () => document.querySelector("input[name=objectif]:checked")?.value || "traduction";
+const remplacerPage = () => objectifPage() === "assemblage" && $("#opt-remplacer").checked;
+
+function majObjectif() {
+  const dispo = doublageActif(), zone = $("#opt-objectif-doublage");
+  zone.disabled = !dispo;
+  if (!dispo && zone.checked) document.querySelector("input[name=objectif][value=traduction]").checked = true;
+  $("#zone-objectif-doublage").title = dispo ? "" : "Le doublage n'est pas configuré : voir la table [doublage] de config.toml";
+  $("#zone-remplacer").hidden = objectifPage() !== "assemblage";
+  if ($("#zone-remplacer").hidden) $("#opt-remplacer").checked = false;     // jamais conservé d'une fois sur l'autre : l'original part à la corbeille
+  const note = $("#note-objectif"), langues = lireLangues(), sansTraducteur = moteur("traducteurs", $("#opt-traducteur").value)?.type === "aucun";
+  if (objectifPage() !== "assemblage") note.textContent = "Résultat : un fichier de sous-titres par langue.";
+  else if (sansTraducteur || !langues.length) note.textContent = "Le doublage a besoin d'une traduction : choisissez un traducteur et au moins une langue.";
+  else note.textContent = `Résultat : les sous-titres et un MKV avec les deux voix. Doublage en ${nomLangue(langues[0])}, environ 8 min 30 de carte graphique pour 30 min de vidéo.`;
+}
+for (const r of document.querySelectorAll("input[name=objectif]")) r.addEventListener("change", majObjectif);
+$("#opt-traducteur").addEventListener("change", majObjectif);
+$("#opt-langues").addEventListener("input", majObjectif);
 
 /* Langues cibles et destination choisies sur la page : mémorisées dans la configuration si elles ont changé. */
 async function enregistrerOptionsPage() {
   const langues = lireLangues(), dest = destinationPage();
-  const change = JSON.stringify(langues) !== JSON.stringify(config.langues_cibles || ["fr"])
+  const change = objectifPage() !== (config.objectif || "traduction") || JSON.stringify(langues) !== JSON.stringify(config.langues_cibles || ["fr"])
     || JSON.stringify(dest) !== JSON.stringify({ a_cote: config.destination?.a_cote ?? true, sortie: config.destination?.sortie ?? false });
   if (!change) return;
-  config.langues_cibles = langues; config.destination = dest;
+  config.langues_cibles = langues; config.destination = dest; config.objectif = objectifPage();
   config = await api("PUT", "/api/config", config);
 }
 
@@ -508,7 +532,8 @@ $("#btn-lancer-lot").addEventListener("click", async () => {
     await enregistrerOptionsPage();
     const o = optionsTache("");
     const lot = await api("POST", "/api/lots", { racine: inventaire.racine, videos, transcription: o.transcription, traducteur: o.traducteur,
-                                                 langues: o.langues, destination: o.destination, sortie: o.sortie, pause: o.pause, refaire: o.refaire });
+                                                 langues: o.langues, destination: o.destination, sortie: o.sortie, pause: o.pause, refaire: o.refaire,
+                                                 arret: objectifPage(), remplacer: remplacerPage(), relecture: claudeDisponible() && $("#opt-relecture").checked });
     fermerDossier();
     suivreLot(lot.id);
   } catch (err) { alert("Impossible de lancer le lot : " + err.message); }
@@ -545,6 +570,98 @@ async function chargerLot(fichier, demarrer = false) {
   } catch (err) { alert("Reprise impossible : " + err.message); }
 }
 
+// --- Étapes d'une vidéo ---------------------------------------------------------------------------------------
+
+const doublageActif = () => !!config.doublage?.actif;
+const claudeDisponible = () => (config.traducteurs || []).some((m) => m.type === "claude");
+
+const veutDoublage = (l) => doublageActif() && ["doublage", "assemblage"].includes(l.options?.arret);
+
+/* Une pastille par étape de la chaîne ; celles qui ne s'appliquent pas à ce lot ne sont pas montrées. */
+function etapesDeLaVideo(v, l) {
+  const relecture = l.options?.relecture || v.relue;
+  return [["Transcription", v.transcrite], ...(relecture ? [["Relecture IA", v.relue], ["Validation des noms", v.relue && v.validee]] : []), ["Traduction", v.traduite],
+          ...(veutDoublage(l) || v.doublee || v.assemblee ? [["Doublage", v.doublee], ["MKV multipiste", v.assemblee]] : [])];
+}
+
+function majPastilles(z, etapes) {
+  if (z.childElementCount !== etapes.length) z.replaceChildren(...etapes.map(() => document.createElement("i")));
+  etapes.forEach(([nom, faite], i) => { z.children[i].className = faite ? "faite" : ""; z.children[i].title = `${nom} : ${faite ? "faite" : "à faire"}`; });
+}
+
+const aValider = (v) => v.relue && !v.validee;
+const idLotAffiche = () => lotCourant || lotTermine;
+
+async function continuerEpisode(chemin) {
+  const id = idLotAffiche();
+  if (!id) return;
+  try {
+    await api("POST", `/api/lots/${id}/continuer`, { chemin });
+    if (lotCourant) rafraichirLot(); else suivreLot(id);
+  } catch (err) { alert(err.message); }
+}
+
+let validationVideo = "";                         // vidéo dont les noms sont affichés ; vide pour tout le lot
+
+function ligneValidation(p) {
+  const tr = document.createElement("tr");
+  tr.dataset.transcrit = p.transcrit;
+  const champ = (valeur, nom) => { const i = document.createElement("input"); i.type = "text"; i.value = valeur || ""; i.dataset.champ = nom; i.spellcheck = false; return i; };
+  const coche = document.createElement("input"); coche.type = "checkbox"; coche.dataset.champ = "accepter";
+  coche.checked = !!p.graphie && p.statut !== "incertain" && p.confiance !== "faible";
+  const pourquoi = document.createElement("div"); pourquoi.className = "pourquoi";
+  pourquoi.textContent = `${p.statut === "incertain" ? "Incertain. " : ""}${p.raison || ""} (${p.occurrences || 0} fois, confiance ${p.confiance || "?"})`;
+  pourquoi.title = (p.exemples || []).join("\n");
+  for (const contenu of [coche, p.transcrit, champ(p.graphie, "graphie"), champ(p.francais, "francais"), pourquoi]) {
+    const td = document.createElement("td"); td.append(contenu); tr.appendChild(td);
+  }
+  return tr;
+}
+
+async function ouvrirValidation(chemin) {
+  const id = idLotAffiche();
+  if (!id) return;
+  try {
+    const r = await api("GET", `/api/lots/${id}/relecture${chemin ? "?chemin=" + encodeURIComponent(chemin) : ""}`);
+    if (!r.propositions.length && chemin) return continuerEpisode(chemin);
+    validationVideo = chemin || "";
+    $("#validation-titre").textContent = `${r.propositions.length} nom${r.propositions.length > 1 ? "s" : ""} à vérifier${chemin ? " : " + nomFichier(chemin) : " dans le lot"}`;
+    $("#validation-lignes").replaceChildren(...r.propositions.map(ligneValidation));
+    $("#btn-validation-valider").textContent = chemin ? "Valider et passer à la suite" : "Valider les noms";
+    $("#validation-message").textContent = "";
+    $("#validation").hidden = false;
+    $("#validation").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (err) { alert(err.message); }
+}
+
+for (const [bouton_, valeur] of [["#btn-validation-tout", true], ["#btn-validation-rien", false]])
+  $(bouton_).addEventListener("click", () => { for (const c of $("#validation-lignes").querySelectorAll("[data-champ=accepter]")) c.checked = valeur; });
+$("#btn-validation-fermer").addEventListener("click", () => { $("#validation").hidden = true; });
+$("#btn-validation-valider").addEventListener("click", async () => {
+  const id = idLotAffiche(), bouton_ = $("#btn-validation-valider");
+  const champ = (tr, nom) => tr.querySelector(`[data-champ=${nom}]`);
+  const decisions = [...$("#validation-lignes").children].map((tr) => ({ transcrit: tr.dataset.transcrit, graphie: champ(tr, "graphie").value, francais: champ(tr, "francais").value, accepter: champ(tr, "accepter").checked }));
+  bouton_.disabled = true;
+  try {
+    await api("POST", `/api/lots/${id}/valider`, { decisions });
+    $("#validation").hidden = true;
+    if (validationVideo) await continuerEpisode(validationVideo);
+    else if (lotCourant) rafraichirLot();
+  } catch (err) { $("#validation-message").textContent = "Échec : " + err.message; }
+  finally { bouton_.disabled = false; }
+});
+$("#btn-lot-verifier").addEventListener("click", () => ouvrirValidation(""));
+async function changerObjectifLot() {
+  const id = idLotAffiche();
+  try {
+    await api("POST", `/api/lots/${id}/objectif`, { arret: $("#lot-objectif").value, remplacer: $("#lot-remplacer").checked });
+    $("#lot-objectif").blur();
+    if (lotCourant) rafraichirLot(); else suivreLot(id);
+  } catch (err) { alert(err.message); }
+}
+$("#lot-objectif").addEventListener("change", changerObjectifLot);
+$("#lot-remplacer").addEventListener("change", changerObjectifLot);
+
 // --- Suivi d'un lot -------------------------------------------------------------------------------------------
 
 let lotCourant = null, minuteurLot = null, lotPausePour = null, derniereEstimationLot = null;
@@ -567,24 +684,36 @@ function texteReste(s) {
   return s > 0 ? "reste environ " + formaterDuree(s) : "fin imminente";
 }
 
-let lotLignes = new Map();                        // chemin de la vidéo → sa ligne dans la liste du lot
+let lotLignes = new Map();                        // rang de la vidéo → sa ligne (son chemin change si le MKV la remplace)
 
 function majListeLot(ul, l) {
-  for (const v of l.videos) {
-    let r = lotLignes.get(v.chemin);
+  for (const [rang, v] of l.videos.entries()) {
+    let r = lotLignes.get(rang);
     if (!r) {
       r = { li: document.createElement("li"), e: document.createElement("span"), n: document.createElement("span"), d: document.createElement("span"), tache: null, etat: null, accordeon: null, duree: "" };
       r.n.className = "src"; r.n.textContent = v.nom; r.d.className = "date";
       r.reessayer = document.createElement("button");
       Object.assign(r.reessayer, { type: "button", className: "secondaire petit", textContent: "Réessayer", title: "Remettre cette vidéo dans la liste à traiter", hidden: true });
       r.reessayer.addEventListener("click", () => reessayerLot(v.chemin));
-      r.li.append(r.e, r.n, r.d, r.reessayer);
+      r.pastilles = document.createElement("span"); r.pastilles.className = "pastilles";
+      r.continuer = document.createElement("button");
+      Object.assign(r.continuer, { type: "button", className: "secondaire petit", hidden: true });
+      r.continuer.addEventListener("click", () => { if (aValider(r.v)) ouvrirValidation(r.v.chemin); else continuerEpisode(r.v.chemin); });
+      r.li.append(r.e, r.n, r.pastilles, r.d, r.continuer, r.reessayer);
       ul.appendChild(r.li);
-      lotLignes.set(v.chemin, r);
+      lotLignes.set(rang, r);
     }
-    r.e.className = "etat " + v.etat;
-    r.e.textContent = { a_faire: "à faire", en_cours: "en cours", prepare: "transcrite", fait: "ok", erreur: "erreur", annule: "annulée" }[v.etat] || v.etat;
-    r.n.title = v.erreur || v.chemin;
+    r.v = v;
+    const bloquee = v.etat === "prepare" && aValider(v);
+    r.e.className = "etat " + (bloquee ? "a_valider" : v.etat);
+    r.e.textContent = bloquee ? "à valider" : { a_faire: "à faire", en_cours: "en cours", prepare: "transcrite", traduit: "traduite", fait: "ok", erreur: "erreur", annule: "annulée" }[v.etat] || v.etat;
+    majPastilles(r.pastilles, etapesDeLaVideo(v, l));
+    const complete = v.traduite && (!veutDoublage(l) || (l.options.arret === "doublage" ? v.doublee : v.assemblee));
+    r.continuer.hidden = complete || ["en_cours", "erreur", "annule"].includes(v.etat) || l.etat === "annule";
+    r.continuer.textContent = aValider(v) ? "Vérifier les noms" : "Continuer";
+    r.continuer.title = aValider(v) ? "Des noms attendent votre décision avant la suite de cet épisode"
+      : `Continuer cet épisode jusqu'${veutDoublage(l) ? "au doublage" : "aux sous-titres traduits"}, avant les autres`;
+    r.n.textContent = v.nom; r.n.title = v.erreur || v.chemin;
     r.reessayer.hidden = v.etat !== "erreur" || l.etat === "annule";
     if (v.tache !== r.tache) {
       r.accordeon?.retirer();
@@ -601,31 +730,118 @@ function majListeLot(ul, l) {
   }
 }
 
+/* Plusieurs vidéos à la fois : une ligne par vidéo (lignes traduites, temps écoulé, temps restant) et un journal commun. */
+const MAX_LIGNES_JOURNAL_COMMUN = 500;
+let modeParallele = false, lignesCommunes = [];
+const suiviParallele = new Map();              // tâche → { nom, lu, faits, total, repris }
+
+function codeVideo(nom) { return /S\d+E\d+/i.exec(nom)?.[0] || nom.replace(/\.[^.]+$/, "").slice(0, 24); }
+
+function entrerParallele() {
+  modeParallele = true; lignesCommunes = []; suiviParallele.clear();
+  clearInterval(minuteur); minuteur = null; tacheCourante = null;
+  $("#tache").hidden = false; $("#etapes").hidden = true; $("#btn-annuler").hidden = true; $("#pause").hidden = true; $("#resultat").hidden = true;
+  $("#journal-texte").textContent = ""; $("#journal-minuteur").textContent = "";
+  $("#tache-titre").title = "";
+  $("#tache-etat").textContent = "en cours"; $("#tache-etat").className = "etat en_cours";
+}
+
+function quitterParallele() {
+  modeParallele = false; suiviParallele.clear(); processTache = null;
+  afficherProcess();
+  $("#lot-actives").hidden = true;            // le journal commun reste lisible jusqu'à la prochaine tâche suivie
+  $("#tache-titre").textContent = "Dernières traductions";
+  $("#tache-etat").textContent = "terminées"; $("#tache-etat").className = "etat terminee";
+}
+
+async function lireSuiviParallele(id, s) {
+  let t;
+  try { t = await api("GET", `/api/taches/${id}?depuis=${s.lu}`); } catch (err) { return null; }
+  let lignes = t.journal;
+  if (!s.repris) {                             // à la première lecture, seulement la traduction, pas la préparation
+    const i = lignes.findLastIndex((x) => x.includes("Reprise :"));
+    if (i >= 0) lignes = lignes.slice(i);
+    s.repris = true;
+  }
+  s.lu = t.journal_total;
+  for (const x of lignes) {
+    const m = /(\d+)\/(\d+) sous-titres traduits/.exec(x);
+    if (m) { s.faits = +m[1]; s.total = +m[2]; }
+  }
+  const code = codeVideo(s.nom);
+  return { t, lignes: lignes.map((x) => x.replace(/^(\[\d\d:\d\d:\d\d\])/, `$1 ${code}`)) };
+}
+
+function ligneActive(a) {
+  const d = document.createElement("div"); d.className = "ligne";
+  const nom = document.createElement("span"); nom.className = "nom"; nom.textContent = a.nom; nom.title = a.nom;
+  const mini = document.createElement("div"); mini.className = "mini";
+  const plein = document.createElement("span"); plein.style.width = (a.total ? 100 * a.faits / a.total : 0).toFixed(0) + "%"; mini.appendChild(plein);
+  const compte = document.createElement("span"); compte.className = "temps compte"; compte.textContent = a.total ? `${a.faits}/${a.total}` : "…";
+  const ecoule = document.createElement("span"); ecoule.className = "temps"; ecoule.textContent = `⏱ ${formaterDuree(a.ecoule)}`;
+  const reste = document.createElement("span"); reste.className = "temps"; reste.textContent = a.reste === null ? "" : `reste ${formaterDuree(a.reste)}`;
+  d.append(nom, mini, compte, ecoule, reste);
+  return d;
+}
+
+async function majParallele(l) {
+  if (!modeParallele) entrerParallele();
+  const actives = l.videos.filter((v) => v.etat === "en_cours" && v.tache);
+  for (const v of actives) if (!suiviParallele.has(v.tache)) suiviParallele.set(v.tache, { nom: v.nom, lu: 0, faits: 0, total: 0, repris: false });
+  const ids = new Set(actives.map((v) => v.tache));
+  const lus = await Promise.all([...suiviParallele].map(async ([id, s]) => ({ id, s, r: await lireSuiviParallele(id, s) })));
+  if (!modeParallele) return;
+  for (const { id } of lus) if (!ids.has(id)) suiviParallele.delete(id);   // terminée : ses dernières lignes viennent d'être lues
+
+  const enCours = lus.filter(({ id, r }) => ids.has(id) && r?.t.etat === "en_cours").map(({ s, r }) => ({
+    nom: s.nom, faits: s.faits, total: s.total, reste: r.t.reste_s ?? null,
+    ecoule: r.t.passe_debut ? Math.max(0, Math.round(Date.now() / 1000 - r.t.passe_debut)) : 0 }));
+  $("#lot-actives").hidden = !enCours.length;
+  $("#lot-actives").replaceChildren(...enCours.map(ligneActive));
+  $("#tache-titre").textContent = `${enCours.length} vidéo${enCours.length > 1 ? "s" : ""} en traduction`;
+  if (enCours.length) processLot += " · " + enCours.map((a) => `${codeVideo(a.nom)} ⏱ ${formaterDuree(a.ecoule)}${a.reste === null ? "" : ", reste " + formaterDuree(a.reste)}`).join(" | ");
+  afficherProcess();
+
+  const nouvelles = lus.flatMap(({ r }) => r?.lignes || []).sort((a, b) => a.slice(0, 10).localeCompare(b.slice(0, 10)));
+  if (nouvelles.length) {
+    const j = $("#journal"), enBas = j.scrollTop + j.clientHeight >= j.scrollHeight - 20;
+    lignesCommunes = lignesCommunes.concat(nouvelles).slice(-MAX_LIGNES_JOURNAL_COMMUN);
+    $("#journal-texte").textContent = lignesCommunes.join("\n");
+    if (enBas) j.scrollTop = j.scrollHeight;
+  }
+}
+
 async function rafraichirLot() {
   if (!lotCourant) return;
   let l;
   try { l = await api("GET", `/api/lots/${lotCourant}`); } catch (err) { return; }
   $("#lot-racine").textContent = l.racine;
   const etat = $("#lot-etat");
-  etat.textContent = { en_cours: l.phase === 1 ? "transcription en cours" : "traduction en cours", suspendu: "en pause", attente_traduction: "en attente de traduction", termine: "terminé", annule: "annulé" }[l.etat] || l.etat;
+  etat.textContent = { en_cours: { 1: "transcription en cours", 2: "traduction en cours", 3: "doublage en cours" }[l.phase], suspendu: "en pause", attente_traduction: "en attente de traduction", termine: "terminé", annule: "annulé" }[l.etat] || l.etat;
   etat.className = "etat " + l.etat;
   $("#btn-lot-suspendre").hidden = l.etat !== "en_cours";
   $("#btn-lot-reprendre").hidden = l.etat !== "suspendu";
   $("#btn-lot-annuler").hidden = ["termine", "annule"].includes(l.etat);
   $("#btn-lot-reessayer").hidden = !l.comptes.erreur || l.etat === "annule";
   $("#btn-lot-reessayer").textContent = l.comptes.erreur > 1 ? `Réessayer les ${l.comptes.erreur} en erreur` : "Réessayer celle en erreur";
-  const faits = l.comptes.fait + (l.phase === 1 ? l.comptes.prepare : 0) + l.comptes.erreur + l.comptes.annule;
+  const faits = l.comptes.fait + (l.phase === 1 ? l.comptes.prepare : 0) + (l.phase < 3 ? l.comptes.traduit : 0) + l.comptes.erreur + l.comptes.annule;
   const barre = $("#lot-progression");
   barre.querySelector(".barre").style.width = (100 * faits / Math.max(1, l.total)).toFixed(0) + "%";
   barre.querySelector(".texte").textContent = `${faits}/${l.total} vidéo${l.total > 1 ? "s" : ""} (${l.comptes.fait} terminée${l.comptes.fait > 1 ? "s" : ""}, ${l.comptes.prepare} transcrite${l.comptes.prepare > 1 ? "s" : ""}, ${l.comptes.erreur} en erreur)`;
   const reste = texteReste(l.reste_s);
-  barre.querySelector(".texte").textContent += reste ? ` · ${reste}` : "";
-  processLot = { en_cours: `Lot ${faits}/${l.total}${reste ? " (" + reste + ")" : ""}`, suspendu: `Lot en pause ${faits}/${l.total}`, attente_traduction: `Lot prêt à traduire ${faits}/${l.total}` }[l.etat] || null;
-  afficherProcess();
+  const parVideo = l.etat === "en_cours" && l.duree_moyenne_s ? `≈ ${formaterDuree(l.duree_moyenne_s)} par vidéo` : "";
+  barre.querySelector(".texte").textContent += (reste ? ` · ${reste}` : "") + (parVideo ? ` · ${parVideo}` : "");
+  // En pause, les vidéos déjà lancées vont jusqu'au bout : leur suivi reste affiché tant qu'il en reste une.
+  lotParallele = l.simultanees > 1 && (l.etat === "en_cours" || (l.etat === "suspendu" && l.comptes.en_cours > 0));
+  const nbActives = `${l.comptes.en_cours} vidéo${l.comptes.en_cours > 1 ? "s" : ""}`;
+  const detailLot = !lotParallele ? "" : l.etat === "suspendu" ? ` · ${nbActives} en train de finir` : ` · ${nbActives} en traduction${parVideo ? " · " + parVideo : ""}`;
+  processLot = { en_cours: `Lot ${faits}/${l.total}${reste ? " (" + reste + ")" : ""}${detailLot}`, suspendu: `Lot en pause ${faits}/${l.total}${detailLot}`, attente_traduction: `Lot prêt à traduire ${faits}/${l.total}` }[l.etat] || null;
+  if (!lotParallele) afficherProcess();          // sinon majParallele complète d'abord le texte, sans clignotement
   // Le réglage de ce lot, pas la case du formulaire (elle ne vaut que pour un nouveau travail).
   const infoPause = $("#lot-info-pause"), traducteurLot = moteur("traducteurs", l.options?.traducteur || config.traducteur_actif);
   infoPause.hidden = l.phase !== 1 || !["en_cours", "suspendu"].includes(l.etat) || traducteurLot?.type === "aucun";
-  infoPause.textContent = l.options?.pause === false ? "Ce lot traduit chaque vidéo à la suite, sans s'arrêter." : "Ce lot s'arrêtera avant de traduire pour afficher le coût.";
+  infoPause.textContent = l.options?.pause === false ? "Ce lot traduit chaque vidéo à la suite, sans s'arrêter."
+    : `Ce lot s'arrêtera avant de traduire pour ${l.options?.relecture ? "vérifier les noms et " : ""}afficher le coût.`;
   $("#lot-fichier").textContent = "Fichier de lot (pour reprendre après une coupure) : " + l.fichier;
   const ul = $("#lot-videos");
   majListeLot(ul, l);
@@ -634,7 +850,21 @@ async function rafraichirLot() {
     lotVideoVue = courante?.chemin ?? null;
     if (courante) { const li = ul.children[l.videos.indexOf(courante)]; ul.scrollTop = li.offsetTop - (ul.clientHeight - li.offsetHeight) / 2; }
   }
-  if (courante?.tache && tacheCourante !== courante.tache) suivre(courante.tache);
+  if (lotParallele) await majParallele(l);
+  else {
+    if (modeParallele) quitterParallele();
+    if (courante?.tache && tacheCourante !== courante.tache) suivre(courante.tache);
+  }
+  const double = veutDoublage(l);
+  $("#lot-zone-objectif").hidden = !doublageActif() || l.etat === "annule";
+  if (document.activeElement !== $("#lot-objectif")) $("#lot-objectif").value = double ? "assemblage" : "traduction";
+  $("#lot-zone-remplacer").hidden = !double;
+  $("#lot-remplacer").checked = !!l.options?.remplacer;
+  $("#lot-note-objectif").textContent = double && l.doublage_s ? `≈ ${formaterDuree(l.doublage_s)} de carte graphique pour les vidéos encore à doubler` : "";
+  $("#btn-lot-traduire").textContent = double ? "Traduire et doubler tout" : "Traduire tout";
+  const nbAValider = l.videos.filter(aValider).length;
+  $("#lot-a-verifier").hidden = !nbAValider;
+  $("#lot-a-verifier-texte").textContent = `${nbAValider} vidéo${nbAValider > 1 ? "s ont" : " a"} des noms à vérifier.`;
   if (l.etat === "attente_traduction") { if (lotPausePour !== l.id) afficherPauseLot(l); }
   else { $("#lot-pause").hidden = true; lotPausePour = null; }
   if (l.etat === "suspendu") { if (lotSuspenduPour !== l.id) afficherSuspendu(l); }
@@ -653,8 +883,42 @@ async function afficherPauseLot(l) {
     catch (err) { $("#lot-message").textContent = err.message; }
   };
   $("#lot-langues").oninput = maj;
-  $("#lot-traducteur").onchange = () => afficherCoutsDans($("#lot-couts"), derniereEstimationLot, $("#lot-traducteur").value);
+  $("#lot-traducteur").onchange = () => { afficherReglagesClaudeLot(); afficherCoutsDans($("#lot-couts"), derniereEstimationLot, $("#lot-traducteur").value); };
+  const changerClaude = () => { sauvegardeClaudeLot = enregistrerReglagesClaudeLot(maj); };
+  $("#lot-modele").onchange = changerClaude;
+  $("#lot-effort").onchange = changerClaude;
+  afficherReglagesClaudeLot();
   await maj();
+}
+
+/* Modèle et effort du traducteur Claude choisi : modifiables ici, car la traduction du lot relit la configuration. */
+let sauvegardeClaudeLot = Promise.resolve();
+
+function afficherReglagesClaudeLot() {
+  const m = moteur("traducteurs", $("#lot-traducteur").value), claude = m?.type === "claude";
+  $("#lot-zone-modele").hidden = !claude; $("#lot-zone-effort").hidden = !claude;
+  $("#lot-note-effort").hidden = !claude || (m.effort || "low") === "low";
+  if (!claude) return;
+  const proposes = [...$("#modeles-claude").options].map((o) => o.value), actuel = m.modele || "claude-sonnet-5-5";
+  const sel = $("#lot-modele");
+  sel.innerHTML = "";
+  for (const v of proposes.includes(actuel) ? proposes : [actuel, ...proposes]) {
+    const o = document.createElement("option"); o.value = v; o.textContent = v; sel.appendChild(o);
+  }
+  sel.value = actuel;
+  $("#lot-effort").value = m.effort || "low";
+}
+
+async function enregistrerReglagesClaudeLot(apres) {
+  const m = moteur("traducteurs", $("#lot-traducteur").value);
+  if (m?.type !== "claude") return;
+  m.modele = $("#lot-modele").value; m.effort = $("#lot-effort").value;
+  try {
+    config = await api("PUT", "/api/config", config);
+    afficherReglagesTraducteur();           // sinon le formulaire de la page réécrirait l'ancienne valeur au prochain lancement
+    afficherReglagesClaudeLot();
+    await apres();
+  } catch (err) { $("#lot-message").textContent = err.message; }
 }
 
 async function actionLot(action, corps) {
@@ -696,7 +960,8 @@ $("#btn-lot-reprendre").addEventListener("click", async () => {
   actionLot("reprendre", corps);
 });
 $("#btn-lot-annuler").addEventListener("click", () => { if (confirm("Annuler le lot ? Les vidéos déjà faites gardent leurs sous-titres.")) actionLot("annuler"); });
-$("#btn-lot-traduire").addEventListener("click", () => {
+$("#btn-lot-traduire").addEventListener("click", async () => {
+  await sauvegardeClaudeLot;
   const traducteur = $("#lot-traducteur").value;
   actionLot("traduire", { traducteur, langues: lireLangues($("#lot-langues")) }).then(() => { $("#lot-pause").hidden = true; });
 });
@@ -705,21 +970,23 @@ $("#btn-lot-sans-traduire").addEventListener("click", () => actionLot("traduire"
 // --- Suivi d'une tâche ----------------------------------------------------------------------------------------
 
 let pausePour = null;          // id de la tâche dont le panneau de pause est construit
-let derniereHeure = null;      // heure (en secondes) de la dernière ligne du journal
 
 // État du traitement en cours, affiché en permanence dans l'en-tête.
-const ETAPES_PROCESS = { source: "Source", transcription: "Transcription", decoupe: "Découpe", traduction: "Traduction", fin: "Fichiers" };
-let processLot = null, processTache = null;
+const ETAPES_PROCESS = { source: "Source", transcription: "Transcription", decoupe: "Découpe", relecture: "Relecture", traduction: "Traduction", fin: "Fichiers", doublage: "Doublage", assemblage: "MKV" };
+let processLot = null, processTache = null, lotParallele = false;
 function afficherProcess() {
-  const z = $("#process"), texte = [processLot, processTache].filter(Boolean).join(" · ");
+  // Plusieurs vidéos à la fois : le détail d'une seule n'apprendrait rien, le lot résume.
+  const z = $("#process"), texte = [processLot, lotParallele ? null : processTache].filter(Boolean).join(" · ");
   z.hidden = !texte;
+  z.classList.toggle("multiligne", lotParallele);
   z.textContent = texte;
   z.title = texte;
 }
 
 function suivre(id) {
   tacheCourante = id; journalLu = 0; pausePour = null;
-  $("#journal-texte").textContent = ""; $("#journal-minuteur").textContent = ""; derniereHeure = null; $("#resultat").hidden = true; $("#pause").hidden = true; $("#tache").hidden = false;
+  $("#etapes").hidden = false;                 // masquées pendant une traduction parallèle
+  $("#journal-texte").textContent = ""; $("#journal-minuteur").textContent = ""; $("#resultat").hidden = true; $("#pause").hidden = true; $("#tache").hidden = false;
   for (const li of document.querySelectorAll("#etapes li")) li.className = "";
   clearInterval(minuteur);
   minuteur = setInterval(rafraichir, 1000);
@@ -730,13 +997,16 @@ async function rafraichir() {
   if (!tacheCourante) return;
   let t;
   try { t = await api("GET", `/api/taches/${tacheCourante}?depuis=${journalLu}`); } catch (err) { return; }
+  if (modeParallele) return;
   $("#tache-titre").textContent = nomFichier(t.source); $("#tache-titre").title = t.source;
   const etat = $("#tache-etat");
   etat.textContent = { en_attente: "en attente", en_cours: "en cours", en_pause: "en pause", terminee: "terminée", erreur: "erreur", annulee: "annulée" }[t.etat] || t.etat;
   etat.className = "etat " + t.etat;
   $("#btn-annuler").hidden = !["en_attente", "en_cours", "en_pause"].includes(t.etat);
-  const ordre = ["source", "transcription", "decoupe", "traduction", "fin"];
-  const i = ordre.indexOf(t.etape);
+  const ordre = ["source", "transcription", "decoupe", "relecture", "traduction", "fin", "doublage", "assemblage"];
+  const i = ordre.indexOf(t.etape), jusqua = t.options?.jusqua;
+  const montrer = { relecture: !!t.options?.relecture, doublage: ["doublage", "assemblage"].includes(jusqua), assemblage: jusqua === "assemblage" };
+  for (const [nom, visible] of Object.entries(montrer)) document.querySelector(`#etapes li[data-etape=${nom}]`).hidden = !visible;
   document.querySelectorAll("#etapes li").forEach((li, k) => {
     li.className = t.etat === "terminee" || k < i ? "faite" : (k === i && t.etat === "en_cours" ? "en-cours" : "");
   });
@@ -747,16 +1017,11 @@ async function rafraichir() {
     const enBas = j.scrollTop + j.clientHeight >= j.scrollHeight - 20;
     const texte = $("#journal-texte");
     texte.textContent += (texte.textContent ? "\n" : "") + t.journal.join("\n");
-    for (const ligne of [...t.journal].reverse()) {
-      const h = /^\[(\d\d):(\d\d):(\d\d)\]/.exec(ligne);
-      if (h) { derniereHeure = 3600 * +h[1] + 60 * +h[2] + +h[3]; break; }
-    }
     if (enBas) j.scrollTop = j.scrollHeight;
   }
   journalLu = t.journal_total;
-  // Temps écoulé depuis la dernière ligne, tant que la tâche travaille ; une nouvelle ligne le remet à zéro.
-  const maintenant = new Date(), secondes = 3600 * maintenant.getHours() + 60 * maintenant.getMinutes() + maintenant.getSeconds();
-  const chrono = t.etat === "en_cours" && derniereHeure !== null ? `⏱ ${formaterDuree((secondes - derniereHeure + 86400) % 86400)}` : "";
+  // Temps écoulé sur cette vidéo depuis le début de la passe (transcription, ou traduction complète).
+  const chrono = t.etat === "en_cours" && t.passe_debut ? `⏱ ${formaterDuree(Math.max(0, Math.round(Date.now() / 1000 - t.passe_debut)))}` : "";
   $("#journal-minuteur").textContent = chrono ? "  " + chrono : "";
   const nomSource = nomFichier(t.source);
   const resteTache = texteReste(t.reste_s);
@@ -778,6 +1043,7 @@ function afficherPause(t) {
   pausePour = t.id;
   const z = $("#pause");
   z.hidden = false;
+  $("#btn-traduire").textContent = t.options?.jusqua === "assemblage" ? "Traduire et doubler" : "Traduire";
   $("#pause-resume").textContent = t.prepare ? `${t.prepare.nb} sous-titres en ${nomLangue(t.prepare.langue)} prêts (${t.prepare.srt_origine}).` : "";
   $("#pause-message").textContent = "";
   remplirSelect($("#pause-traducteur"), config.traducteurs, t.options?.traducteur || config.traducteur_actif);
@@ -838,10 +1104,18 @@ function afficherResultat(r) {
   z.innerHTML = "";
   const fichiers = r.fichiers || [{ langue: r.langue, chemin: r.srt, nb: r.nb, traduit: r.traduit }];
   const titre = document.createElement("strong");
-  titre.textContent = `${fichiers.length} fichier(s) de sous-titres (${fichiers.map((f) => nomLangue(f.langue)).join(", ")}) en ${formaterDuree(r.duree_s)}`;
+  const langues = fichiers.map((f) => nomLangue(f.langue)).join(", ");
+  // En dessous de 5 s, tout a été repris du travail déjà fait (même seuil que temps.py). La durée s'arrête aux sous-titres : pas de sens après un doublage.
+  titre.textContent = r.mkv ? `Sous-titres et doublage créés : ${langues}` : r.duree_s < 5 ? `Sous-titres déjà prêts, rien à refaire : ${langues}`
+    : `Sous-titres créés : ${langues} (${formaterDuree(r.duree_s)} depuis le début du traitement)`;
   z.appendChild(titre);
   z.appendChild(bouton("Ouvrir le dossier", () => api("POST", "/api/ouvrir", { chemin: r.srt })));
-  z.appendChild(bouton("Ouvrir la vidéo", () => api("POST", "/api/ouvrir", { chemin: r.video })));
+  z.appendChild(bouton(r.mkv ? "Ouvrir le MKV" : "Ouvrir la vidéo", () => api("POST", "/api/ouvrir", { chemin: r.mkv || r.video })));
+  if (r.mkv) {
+    const ch = document.createElement("div");
+    ch.className = "chemin"; ch.textContent = `${r.remplace ? "Vidéo remplacée (original à la corbeille)" : "MKV multipiste"} → ${r.mkv}`;
+    z.appendChild(ch);
+  }
   for (const f of fichiers) {
     const ch = document.createElement("div");
     ch.className = "chemin"; ch.textContent = `${nomLangue(f.langue)}${f.traduit ? "" : " (langue parlée)"} : ${f.nb} sous-titres → ${f.chemin}`;

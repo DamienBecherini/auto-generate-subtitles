@@ -16,6 +16,9 @@ import urllib.request
 
 from . import config, langue
 
+SIMULTANEES_CLAUDE = 5
+SIMULTANEES_MAX = 20
+
 SYSTEME = """Tu es un traducteur professionnel de sous-titres vidéo. Tu traduis en {langue}.
 Règles :
 - Une ligne numérotée en entrée donne exactement une ligne numérotée en sortie, avec le même numéro, dans le même ordre. Ne fusionne jamais deux lignes, n'en découpe aucune, n'en saute aucune.
@@ -27,9 +30,12 @@ Règles :
 _LIGNE = re.compile(r"^\s*(\d+)\s*[.):\-–]\s*(.*)$")
 
 
-def consigne(cible: str = "fr") -> str:
-    """Consigne système pour une langue cible (code ISO)."""
-    return SYSTEME.format(langue=langue.nom(cible))
+def consigne(cible: str = "fr", termes: list[str] | None = None) -> str:
+    """Consigne système pour une langue cible (code ISO), avec les noms validés pour cette vidéo."""
+    texte = SYSTEME.format(langue=langue.nom(cible))
+    if termes:
+        texte += "\n\nNoms à respecter (« source → forme à employer » ; sans flèche, la forme usuelle dans la langue cible) :\n" + "\n".join("- " + t for t in termes)
+    return texte
 
 
 class ErreurTraduction(Exception):
@@ -148,7 +154,8 @@ class TraducteurClaude:
         if not cle:
             raise ErreurTraduction("clé Anthropic introuvable (référence « cle » de la configuration)")
         self.anthropic = anthropic
-        self.client = anthropic.Anthropic(api_key=cle)
+        # Plusieurs vidéos à la fois peuvent atteindre la limite de débit : le SDK attend et réessaie (`retry-after`).
+        self.client = anthropic.Anthropic(api_key=cle, max_retries=8)
         self.modele = m.get("modele", "claude-sonnet-5-5")
         self.effort = m.get("effort") or "low"
         self.journal = journal
@@ -158,14 +165,15 @@ class TraducteurClaude:
     def preparer(self):
         pass
 
-    def completer(self, consigne: str, demande: str) -> str:
+    def completer(self, consigne: str, demande: str, schema: dict | None = None, effort: str | None = None) -> str:
         a = self.anthropic
+        sortie = {"effort": effort or self.effort, **({"format": {"type": "json_schema", "schema": schema}} if schema else {})}
         try:
             # Repli serveur en cas de refus par les classificateurs (routage par catégorie, sans liste de modèles).
             rep = self.client.beta.messages.create(
                 model=self.modele, max_tokens=16000, system=consigne,
                 messages=[{"role": "user", "content": demande}],
-                output_config={"effort": self.effort},
+                output_config=sortie,
                 betas=["server-side-fallback-2026-07-01"], fallbacks="default")
         except a.RateLimitError as e:
             raise ErreurTraduction(f"API Anthropic : limite de débit ({e.response.headers.get('retry-after', '?')} s)") from e
@@ -199,6 +207,16 @@ def creer(m: dict, journal=print):
     raise ErreurTraduction(f"type de traducteur inconnu : {t}")
 
 
+def simultanees(m: dict) -> int:
+    """Vidéos d'un lot traduites en même temps : champ `parallele` du traducteur, sinon 5 pour Claude (API distante)
+    et 1 pour les autres (une IA locale n'en traite qu'une)."""
+    try:
+        n = int(m.get("parallele") or (SIMULTANEES_CLAUDE if m.get("type") == "claude" else 1))
+    except (TypeError, ValueError):
+        n = 1
+    return max(1, min(n, SIMULTANEES_MAX))
+
+
 def tester(m: dict) -> str:
     """Petit échange pour vérifier qu'un traducteur répond ; retourne sa réponse."""
     tr = creer(m, lambda _msg: None)
@@ -210,9 +228,9 @@ def tester(m: dict) -> str:
 
 
 def traduire_textes(traducteur, textes: list[str], taille_lot: int = 25, journal=print, annule=lambda: False,
-                    cible: str = "fr") -> list[str]:
+                    cible: str = "fr", termes: list[str] | None = None) -> list[str]:
     """Traduit dans l'ordre vers la langue `cible` ; une ligne que le modèle n'a pas rendue reste telle quelle (signalée)."""
-    systeme = consigne(cible)
+    systeme = consigne(cible, termes)
     traducteur.preparer()
     resultat = [None] * len(textes)
     contexte: list[str] = []

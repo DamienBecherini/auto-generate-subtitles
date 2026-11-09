@@ -1,8 +1,8 @@
 """Temps restant d'un travail : vitesse observée, retenue d'une session à l'autre, sinon vitesse annoncée dans la configuration.
 
 Une « passe » est un passage d'une vidéo dans la file : 1 = préparation (avec la traduction si le lot ne fait pas de
-pause), 2 = traduction après une pause. Son poids dit ce qui fait varier sa durée : secondes de vidéo en passe 1,
-lignes × langues en passe 2. Le taux est le nombre de secondes de calcul par unité de poids.
+pause), 2 = traduction après une pause, 3 = doublage et assemblage. Son poids dit ce qui fait varier sa durée : secondes
+de vidéo en passes 1 et 3, lignes × langues en passe 2. Le taux est le nombre de secondes de calcul par unité de poids.
 """
 import json
 import threading
@@ -12,6 +12,7 @@ from .. import config, estimation
 FICHIER = config.dossier_utilisateur() / "vitesses.json"
 DUREE_MIN_S = 5                # en dessous, la passe a repris des résultats déjà faits : elle ne dit rien de la vitesse
 LIGNES_PAR_SECONDE = 0.29      # sous-titres par seconde de vidéo (mesuré : 494 et 562 lignes pour 30 min)
+DOUBLAGE_PAR_SECONDE = 0.28    # secondes de carte graphique par seconde de vidéo (mesuré : 8 min 30 pour 30 min)
 
 _verrou = threading.Lock()
 _memoire: dict | None = None
@@ -20,6 +21,8 @@ _memoire: dict | None = None
 def cle(passe: int, options: dict) -> str:
     """La vitesse dépend de ce qui travaille : serveur de transcription, traducteur, ou les deux à la suite."""
     transcription, traducteur = options.get("transcription") or "", options.get("traducteur") or ""
+    if passe == 3:
+        return "doublage"
     if passe == 2:
         return f"traduction|{traducteur}"
     return f"complet|{transcription}|{traducteur}" if options.get("pause", True) is False else f"transcription|{transcription}"
@@ -54,6 +57,8 @@ def noter(c: str, taux: float):
 
 def _taux_annonce(passe: int, options: dict) -> float | None:
     """Tant que rien n'a été mesuré : vitesse du serveur de transcription et durée par ligne de la configuration."""
+    if passe == 3:
+        return DOUBLAGE_PAR_SECONDE
     try:
         cfg = config.charger()
         par_ligne = float(estimation.reglages(cfg)["secondes_par_ligne_local"])
