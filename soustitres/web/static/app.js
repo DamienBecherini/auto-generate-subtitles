@@ -740,7 +740,7 @@ function codeVideo(nom) { return /S\d+E\d+/i.exec(nom)?.[0] || nom.replace(/\.[^
 function entrerParallele() {
   modeParallele = true; lignesCommunes = []; suiviParallele.clear();
   clearInterval(minuteur); minuteur = null; tacheCourante = null;
-  $("#tache").hidden = false; $("#etapes").hidden = true; $("#btn-annuler").hidden = true; $("#pause").hidden = true; $("#resultat").hidden = true;
+  montrerRelance(null); $("#tache").hidden = false; $("#etapes").hidden = true; $("#btn-annuler").hidden = true; $("#pause").hidden = true; $("#resultat").hidden = true;
   $("#journal-texte").textContent = ""; $("#journal-minuteur").textContent = "";
   $("#tache-titre").title = "";
   $("#tache-etat").textContent = "en cours"; $("#tache-etat").className = "etat en_cours";
@@ -983,8 +983,18 @@ function afficherProcess() {
   z.title = texte;
 }
 
+function montrerRelance(t) {
+  const possible = t && t.etat === "erreur" && !t.options?.lot;
+  for (const b of [$("#btn-relancer"), $("#btn-relancer-journal")]) { b.hidden = !possible; b.dataset.tache = possible ? t.id : ""; }
+}
+
+async function relancer(id) {
+  try { await suivre((await api("POST", `/api/taches/${id}/reessayer`)).id); majHistorique(); }
+  catch (err) { alert("Relance impossible : " + err.message); }
+}
+
 function suivre(id) {
-  tacheCourante = id; journalLu = 0; pausePour = null;
+  tacheCourante = id; journalLu = 0; pausePour = null; montrerRelance(null);
   $("#etapes").hidden = false;                 // masquées pendant une traduction parallèle
   $("#journal-texte").textContent = ""; $("#journal-minuteur").textContent = ""; $("#resultat").hidden = true; $("#pause").hidden = true; $("#tache").hidden = false;
   for (const li of document.querySelectorAll("#etapes li")) li.className = "";
@@ -1003,6 +1013,7 @@ async function rafraichir() {
   etat.textContent = { en_attente: "en attente", en_cours: "en cours", en_pause: "en pause", terminee: "terminée", erreur: "erreur", annulee: "annulée" }[t.etat] || t.etat;
   etat.className = "etat " + t.etat;
   $("#btn-annuler").hidden = !["en_attente", "en_cours", "en_pause"].includes(t.etat);
+  montrerRelance(t);
   const ordre = ["source", "transcription", "decoupe", "relecture", "traduction", "fin", "doublage", "assemblage"];
   const i = ordre.indexOf(t.etape), jusqua = t.options?.jusqua;
   const montrer = { relecture: !!t.options?.relecture, doublage: ["doublage", "assemblage"].includes(jusqua), assemblage: jusqua === "assemblage" };
@@ -1130,6 +1141,7 @@ function bouton(texte, action) {
   return b;
 }
 
+for (const b of [$("#btn-relancer"), $("#btn-relancer-journal")]) b.addEventListener("click", () => relancer(b.dataset.tache));
 $("#btn-annuler").addEventListener("click", () => { if (tacheCourante) api("POST", `/api/taches/${tacheCourante}/annuler`); });
 
 let historiqueComplet = false;
@@ -1210,6 +1222,7 @@ async function majHistorique() {
     const accordeon = journalAccordeon(t, src);
     li.appendChild(accordeon.bouton);
     if (t.resultat?.srt) li.appendChild(bouton("Dossier", () => api("POST", "/api/ouvrir", { chemin: t.resultat.srt })));
+    if (t.etat === "erreur" && !t.options?.lot) li.appendChild(bouton("Relancer", () => relancer(t.id)));
     ul.appendChild(li);
     chargements.push(accordeon.installer(li));
   }

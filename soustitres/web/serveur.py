@@ -5,7 +5,7 @@
   GET  /api/etat                 moteurs actifs, état du serveur de transcription local et de l'IA locale, tâche en cours
   GET  /api/config  PUT /api/config
   POST /api/taches  {source, transcription?, traducteur?, langue?, langues?, sortie?, destination?, refaire?, pause?}   GET /api/taches
-  GET  /api/taches/<id>?depuis=N     POST /api/taches/<id>/annuler
+  GET  /api/taches/<id>?depuis=N     POST /api/taches/<id>/annuler     POST /api/taches/<id>/reessayer (tâche en erreur)
   GET  /api/taches/<id>/estimation?langues=fr,en      coût estimé (tâche en pause) pour ces langues
   POST /api/taches/<id>/traduire {traducteur?, langues?}   seconde phase d'une tâche en pause ("aucun" = terminer sans traduire)
   GET  /api/nettoyage            taille des dossiers de travail par catégorie     POST /api/nettoyage {options} → supprimé par catégorie
@@ -407,6 +407,10 @@ class Requete(BaseHTTPRequestHandler):
                     raise ErreurRequete(409, "une tâche est en cours : nettoyer après")
                 return self._json(200, {"racine": str(racine), "supprime": nettoyage.nettoyer_tout(racine, opts),
                                         "categories": nettoyage.bilan(racine)})
+            m = re.fullmatch(r"/api/taches/([0-9a-f]+)/reessayer", u.path)
+            if m:
+                t = gestionnaire.reessayer(m.group(1))
+                return self._json(200, {"id": t.id}) if t else self._json(404, {"erreur": "tâche introuvable ou pas en erreur"})
             m = re.fullmatch(r"/api/taches/([0-9a-f]+)/annuler", u.path)
             if m:
                 return self._json(200, {"ok": gestionnaire.annuler(m.group(1))})

@@ -181,3 +181,5 @@ code { font: 12.5px ui-monospace, Consolas, monospace; background: var(--fond); 
   .progression.indefini .barre { animation: none; }
   .progression .barre, .zone-defil::before, .zone-defil::after { transition: none; }
 }
+.actions-journal { display: flex; justify-content: flex-end; margin-top: .4em; }
+#tache .actions-journal:not(:has(button:not([hidden]))) { display: none; }

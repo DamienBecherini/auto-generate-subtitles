@@ -100,6 +100,14 @@ class Gestionnaire:
         self.reveil.set()
         return t
 
+    def reessayer(self, ident: str) -> Tache | None:
+        """Nouvelle tâche aux mêmes réglages pour une vidéo seule en erreur ; None si ce n'est pas possible. Ce qui est déjà fait est réutilisé."""
+        t = self.taches.get(ident)
+        r = t.resume() if t else next((x for x in self.historique if x["id"] == ident), None)
+        if not r or r["etat"] != "erreur" or (r.get("options") or {}).get("lot"):
+            return None
+        return self.ajouter({**(r.get("options") or {}), "source": r["source"]})
+
     def obtenir(self, ident: str) -> Tache | None:
         return self.taches.get(ident)
 

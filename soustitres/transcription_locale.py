@@ -4,10 +4,12 @@ import os
 import subprocess
 import threading
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 _SANS_FENETRE = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+CODE_ECHEC_DEMARRAGE = 3                # uvicorn : l'écoute sur le port a échoué
 
 
 class ErreurServeurLocal(Exception):
@@ -20,6 +22,24 @@ def _repond(url: str) -> bool:
             return b"pret" in r.read()
     except OSError:
         return False
+
+
+def occupant_du_port(url: str) -> str:
+    """Programme qui écoute sur le port de `url` : « nom (pid n) », ou "" s'il n'y en a pas ou hors Windows."""
+    if os.name != "nt":
+        return ""
+    port = urllib.parse.urlsplit(url).port
+    try:
+        lignes = subprocess.run(["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True, errors="replace", timeout=20,
+                                creationflags=_SANS_FENETRE).stdout.splitlines()
+        pid = next((p[4] for p in map(str.split, lignes) if len(p) == 5 and p[1].endswith(f":{port}") and p[3] == "LISTENING"), None)
+        if not pid:
+            return ""
+        nom = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True, errors="replace", timeout=20,
+                             creationflags=_SANS_FENETRE).stdout.split(",")[0].strip().strip('"')
+        return f"{nom or 'programme inconnu'} (pid {pid})"
+    except (OSError, subprocess.SubprocessError):
+        return ""
 
 
 class ServeurLocal:
@@ -67,7 +87,10 @@ class ServeurLocal:
                 journal(f"Serveur de transcription local prêt ({time.time() - debut:.0f} s).")
                 return True
             if self.processus and self.processus.poll() is not None:
-                raise ErreurServeurLocal(f"le serveur local s'est arrêté (code {self.processus.returncode}) : voir {self.journal_fichier}")
+                code = self.processus.returncode
+                occupant = occupant_du_port(self.url) if code == CODE_ECHEC_DEMARRAGE else ""
+                detail = f" ; port déjà utilisé par {occupant}" if occupant else ""
+                raise ErreurServeurLocal(f"le serveur local s'est arrêté (code {code}){detail} : voir {self.journal_fichier}")
             time.sleep(1)
         raise ErreurServeurLocal("le serveur de transcription local n'a pas répondu à temps")
 
