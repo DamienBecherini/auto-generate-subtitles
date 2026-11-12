@@ -20,6 +20,8 @@
 
 Subtitles for a YouTube video or a video file, in its own language and in the languages you want. You bring the transcription server; translation runs on a local LLM, the Claude API, any OpenAI-compatible API, or not at all. Output is `.srt` and `.vtt` files timed on the actual speech.
 
+![A folder of videos subtitled in a batch: progress, steps and live log](docs/images/batch-running-dark.png)
+
 ## What it does
 
 - **One video or a whole folder.** A folder becomes a batch you can pause, resume after a power cut, and retry video by video.
@@ -27,6 +29,18 @@ Subtitles for a YouTube video or a video file, in its own language and in the la
 - **No retyped work.** Each step is skipped when its result already exists: changing a language or the layout does not transcribe again.
 - **Web page or command line.** The page shows steps, live log and remaining time. It runs on your machine and listens on `127.0.0.1` only.
 - **Subtitles only, or dubbing too.** Choose at the start. Check one episode end to end before running the rest of a batch, and validate AI-corrected names before translating.
+
+## Screenshots
+
+| Choose the engines and the languages | Pick the videos of a folder |
+|---|---|
+| [![Home page](docs/images/home-light.png)](docs/images/home-light.png) | [![Folder inventory](docs/images/folder-dark.png)](docs/images/folder-dark.png) |
+| **Batch done: one file per language** | **The result, here in English** |
+| [![Batch done](docs/images/batch-done-dark.png)](docs/images/batch-done-dark.png) | [![Video with English subtitles](docs/images/result-en.png)](docs/images/result-en.png) |
+
+The demo videos are made on the spot (Windows speech synthesis, `docs/demo/videos_demo.py`): a French narration,
+transcribed by [transcription-handy-like](https://github.com/DamienBecherini/transcription-handy-like) and translated
+into English and Spanish by a local LLM (Qwen3.6 with llama.cpp), at no cost.
 
 ## Quick start
 

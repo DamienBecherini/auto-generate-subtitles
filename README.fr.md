@@ -20,6 +20,20 @@
 
 Sous-titres d'une vidéo YouTube ou d'un fichier vidéo dans sa langue et dans les langues voulues. La transcription passe par un serveur compatible OpenAI que vous fournissez ; la traduction par une IA locale, l'API Claude, toute API compatible OpenAI, ou rien. Les fichiers `.srt` et `.vtt` sont calés sur la parole. Interface web locale ou ligne de commande.
 
+![Un dossier de vidéos sous-titré en lot : progression, étapes et journal en direct](docs/images/batch-running-dark.png)
+
+## Captures d'écran
+
+| Choisir les moteurs et les langues | Choisir les vidéos d'un dossier |
+|---|---|
+| [![Page d'accueil](docs/images/home-light.png)](docs/images/home-light.png) | [![Inventaire du dossier](docs/images/folder-dark.png)](docs/images/folder-dark.png) |
+| **Lot terminé : un fichier par langue** | **Le résultat, ici en anglais** |
+| [![Lot terminé](docs/images/batch-done-dark.png)](docs/images/batch-done-dark.png) | [![Vidéo sous-titrée en anglais](docs/images/result-en.png)](docs/images/result-en.png) |
+
+Les vidéos de démonstration sont fabriquées sur place (synthèse vocale de Windows, `docs/demo/videos_demo.py`) : une
+narration en français, transcrite par [transcription-handy-like](https://github.com/DamienBecherini/transcription-handy-like/blob/main/README.fr.md)
+et traduite en anglais et en espagnol par une IA locale (Qwen3.6 avec llama.cpp), sans frais.
+
 ## Démarrage rapide
 
 **1. Lancez un serveur de transcription.** Cet outil envoie l'audio à un serveur que vous faites tourner. Utilisez **[transcription-handy-like](https://github.com/DamienBecherini/transcription-handy-like/blob/main/README.fr.md)** : son [démarrage rapide](https://github.com/DamienBecherini/transcription-handy-like/blob/main/README.fr.md#démarrage-rapide-sur-votre-ordinateur) tient en trois commandes avec Docker, et il écoute à l'adresse attendue ici par défaut.
