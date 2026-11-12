@@ -1,8 +1,24 @@
+<div align="center">
+
 # auto-generate-subtitles
 
-Sous-titres d'une vidéo YouTube ou d'un fichier vidéo dans sa langue et dans les langues voulues. La transcription passe par un serveur compatible OpenAI que vous fournissez ; la traduction par une IA locale, l'API Claude, toute API compatible OpenAI, ou rien. Les fichiers `.srt` et `.vtt` sont calés sur la parole. Interface web locale ou ligne de commande.
+**Des sous-titres pour une vidéo YouTube, un fichier ou un dossier entier, calés sur la parole, dans les langues voulues.**
 
-[English version](README.md)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org)
+[![No dependencies](https://img.shields.io/badge/dependencies-standard%20library%20only-2EA043)](pyproject.toml)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-required-007808?logo=ffmpeg&logoColor=white)](https://ffmpeg.org)
+[![Output SRT / VTT](https://img.shields.io/badge/output-SRT%20%2F%20VTT-0A7EA4)](#interface-web)
+[![Translation](https://img.shields.io/badge/translation-local%20LLM%20%7C%20Claude%20%7C%20OpenAI--compatible-D97757)](#chaîne)
+[![Transcription server](https://img.shields.io/badge/transcription-transcription--handy--like-BC52EE)](https://github.com/DamienBecherini/transcription-handy-like)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+**Français** · [English](README.md)
+
+</div>
+
+---
+
+Sous-titres d'une vidéo YouTube ou d'un fichier vidéo dans sa langue et dans les langues voulues. La transcription passe par un serveur compatible OpenAI que vous fournissez ; la traduction par une IA locale, l'API Claude, toute API compatible OpenAI, ou rien. Les fichiers `.srt` et `.vtt` sont calés sur la parole. Interface web locale ou ligne de commande.
 
 ## Démarrage rapide
 
