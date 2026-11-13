@@ -11,6 +11,8 @@ Catégories (options `[nettoyage]` de la configuration, `true` = supprimer) :
 import time
 from pathlib import Path
 
+from . import i18n
+
 CATEGORIES = {
     "audio": ["*.audio.*", "*.m4a", "*.opus", "*.mp3", "*.ogg", "*.flac", "*.wav"],   # extensions seules : nom des premières versions
     "sous_titres": ["*.srt", "*.vtt"],
@@ -65,7 +67,7 @@ def nettoyer_dossier(travail: Path, opts: dict, journal=lambda _m: None, garder:
             cibles = [f for f in cibles if f.stat().st_mtime <= limite]
         nb, octets = _supprimer(cibles)
         if nb:
-            journal(f"Nettoyage {cat} : {nb} fichier(s), {octets / 1e6:.1f} Mo")
+            journal(i18n.t("log.cleanup", category=i18n.etiquette("cleanup.", cat), n=nb, mb=f"{octets / 1e6:.1f}"))
         total_nb += nb
         total_octets += octets
     return total_nb, total_octets

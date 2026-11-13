@@ -1,131 +1,127 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Génération de sous-titres</title>
+<title>Subtitles</title>
 <script>try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <link rel="stylesheet" href="/static/style.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23264653'/%3E%3Crect x='6' y='19' width='20' height='3' rx='1.5' fill='%23fff'/%3E%3Crect x='9' y='24' width='14' height='3' rx='1.5' fill='%23fff'/%3E%3C/svg%3E">
 </head>
 <body class="chargement">
 <header>
-  <h1>Génération de sous-titres</h1>
+  <h1 data-i18n="ui.title"></h1>
   <div class="moteurs">
-    <span class="puce" id="puce-transcription" title="Serveur de transcription actif">…</span>
-    <span class="puce" id="puce-traducteur" title="Traducteur actif">…</span>
+    <span class="puce" id="puce-transcription" data-i18n-title="ui.header.transcription_title">…</span>
+    <span class="puce" id="puce-traducteur" data-i18n-title="ui.header.translator_title">…</span>
     <span class="puce discret" id="puce-ia" hidden></span>
   </div>
-  <a id="lien-github" class="lien-entete" href="#" target="_blank" rel="noopener" aria-disabled="true" title="Dépôt GitHub : pas encore publié">GitHub</a>
+  <a id="lien-github" class="lien-entete" href="#" target="_blank" rel="noopener" aria-disabled="true">GitHub</a>
+  <select id="choix-langue" class="choix-langue" data-i18n-title="ui.header.language" data-i18n-aria-label="ui.header.language"></select>
   <button id="btn-theme" class="secondaire theme" type="button"></button>
-  <button id="btn-reglages" class="secondaire" disabled>Réglages</button>
+  <button id="btn-reglages" class="secondaire" disabled data-i18n="ui.settings"></button>
   <span class="puce attention process" id="process" hidden></span>
 </header>
 
 <main inert aria-busy="true">
-  <div id="chargement" class="bandeau" role="status"><span class="rond" aria-hidden="true"></span><span id="chargement-texte">Chargement : recherche d'un travail en cours…</span></div>
-  <div id="coupure" class="bandeau" hidden>Le service ne répond plus (il s'arrête après une période d'inactivité). Le relancer depuis le module de la page Nouvel onglet, puis recharger cette page.</div>
+  <div id="chargement" class="bandeau" role="status"><span class="rond" aria-hidden="true"></span><span id="chargement-texte" data-i18n="ui.loading"></span></div>
+  <div id="coupure" class="bandeau" hidden data-i18n="ui.service_down"></div>
   <div id="dernier-lot" class="bandeau" hidden>
     <strong id="dernier-lot-titre"></strong>
     <div class="aide" id="dernier-lot-detail"></div>
     <div class="actions">
-      <button type="button" class="principal" id="btn-dernier-reprendre">Reprendre le lot</button>
-      <button type="button" class="secondaire" id="btn-dernier-regler" title="Ouvre le lot en pause pour changer le traducteur ou les langues avant de le relancer">Changer les réglages d'abord</button>
-      <button type="button" class="secondaire" id="btn-dernier-ignorer" title="Ne plus le proposer ; son fichier reste disponible par « Reprendre un lot… »">Ignorer</button>
+      <button type="button" class="principal" id="btn-dernier-reprendre" data-i18n="ui.last_batch.resume"></button>
+      <button type="button" class="secondaire" id="btn-dernier-regler" data-i18n="ui.last_batch.settings_first" data-i18n-title="ui.last_batch.settings_first_title"></button>
+      <button type="button" class="secondaire" id="btn-dernier-ignorer" data-i18n="ui.last_batch.ignore" data-i18n-title="ui.last_batch.ignore_title"></button>
     </div>
   </div>
   <section class="carte" id="saisie">
     <form id="form-source">
-      <label for="source">Adresse YouTube ou chemin d'une vidéo</label>
+      <label for="source" data-i18n="ui.source.label"></label>
       <div class="ligne">
-        <input id="source" type="text" placeholder="https://www.youtube.com/watch?v=…  ou  chemin d'une vidéo" autocomplete="off" spellcheck="false">
-        <button type="submit" id="btn-go" class="principal">Démarrer</button>
+        <input id="source" type="text" data-i18n-placeholder="ui.source.placeholder" autocomplete="off" spellcheck="false">
+        <button type="submit" id="btn-go" class="principal" data-i18n="ui.source.start"></button>
       </div>
       <div id="apercu" class="apercu" hidden></div>
     </form>
 
     <div id="depot" class="depot">
       <div class="depot-actions">
-        <strong>Glisser une vidéo ici</strong>
-        <span class="aide">ou</span>
-        <button type="button" id="btn-parcourir" class="secondaire">Parcourir…</button>
-        <button type="button" id="btn-dossier-source" class="secondaire">Dossier…</button>
-        <button type="button" id="btn-reprendre-lot" class="secondaire" title="Relit un fichier sous-titres.lot.json laissé par un lot interrompu">Reprendre un lot…</button>
+        <strong data-i18n="ui.drop.title"></strong>
+        <span class="aide" data-i18n="ui.drop.or"></span>
+        <button type="button" id="btn-parcourir" class="secondaire" data-i18n="ui.browse"></button>
+        <button type="button" id="btn-dossier-source" class="secondaire" data-i18n="ui.drop.folder"></button>
+        <button type="button" id="btn-reprendre-lot" class="secondaire" data-i18n="ui.drop.resume_batch" data-i18n-title="ui.drop.resume_batch_title"></button>
       </div>
-      <div class="aide">Une vidéo glissée est copiée dans le dossier de sortie ; avec Parcourir, elle reste où elle est.</div>
+      <div class="aide" data-i18n="ui.drop.help"></div>
       <div id="depot-progression" class="progression" hidden><div class="barre"></div><span class="texte"></span></div>
     </div>
 
     <div id="dossier" class="sous-carte" hidden>
       <div class="entete">
-        <h2>Dossier</h2>
-        <button type="button" class="secondaire petit" id="btn-dossier-plier">Tout déplier</button>
-        <button type="button" class="secondaire petit" id="btn-dossier-tout">Tout cocher</button>
-        <button type="button" class="secondaire petit" id="btn-dossier-rien">Tout décocher</button>
-        <button type="button" class="secondaire petit" id="btn-dossier-manquants" title="Coche les vidéos auxquelles il manque au moins une des langues de traduction choisies">Cocher celles à faire</button>
-        <button type="button" class="fermer" id="btn-fermer-dossier" aria-label="Fermer">×</button>
+        <h2 data-i18n="ui.folder.title"></h2>
+        <button type="button" class="secondaire petit" id="btn-dossier-plier" data-i18n="ui.folder.expand_all"></button>
+        <button type="button" class="secondaire petit" id="btn-dossier-tout" data-i18n="ui.check_all"></button>
+        <button type="button" class="secondaire petit" id="btn-dossier-rien" data-i18n="ui.uncheck_all"></button>
+        <button type="button" class="secondaire petit" id="btn-dossier-manquants" data-i18n="ui.folder.check_missing" data-i18n-title="ui.folder.check_missing_title"></button>
+        <button type="button" class="fermer" id="btn-fermer-dossier" data-i18n-aria-label="ui.close">×</button>
     </div>
       <div class="aide" id="dossier-racine"></div>
       <div id="dossier-chargement" class="ligne" hidden>
         <div id="dossier-progression" class="progression"><div class="barre"></div><span class="texte"></span></div>
-        <button type="button" class="secondaire petit" id="btn-dossier-annuler">Annuler</button>
+        <button type="button" class="secondaire petit" id="btn-dossier-annuler" data-i18n="ui.cancel"></button>
       </div>
       <div id="dossier-lot-existant" class="aide" hidden></div>
       <div class="cases" style="margin-top:10px">
-        <label class="case">Langue parlée pour toutes <select id="dossier-langue-globale"></select></label>
-        <button type="button" class="secondaire petit" id="btn-dossier-appliquer-langue">Appliquer</button>
-        <span class="aide">puis ajuster vidéo par vidéo ci-dessous (préremplie par l'étiquette de la piste audio quand elle existe)</span>
+        <label class="case"><span data-i18n="ui.folder.spoken_all"></span> <select id="dossier-langue-globale"></select></label>
+        <button type="button" class="secondaire petit" id="btn-dossier-appliquer-langue" data-i18n="ui.folder.apply"></button>
+        <span class="aide" data-i18n="ui.folder.apply_help"></span>
     </div>
       <div id="dossier-arbre" class="arbre"></div>
     </div>
 
     <div class="objectif">
-      <span class="aide">Ce que vous voulez obtenir</span>
+      <span class="aide" data-i18n="ui.goal.title"></span>
       <div class="cases">
-        <label class="case"><input type="radio" name="objectif" value="traduction" checked> Sous-titres seulement</label>
-        <label class="case" id="zone-objectif-doublage"><input type="radio" name="objectif" value="assemblage" id="opt-objectif-doublage"> Sous-titres + doublage</label>
+        <label class="case"><input type="radio" name="objectif" value="traduction" checked> <span data-i18n="ui.goal.subtitles"></span></label>
+        <label class="case" id="zone-objectif-doublage"><input type="radio" name="objectif" value="assemblage" id="opt-objectif-doublage"> <span data-i18n="ui.goal.dubbing"></span></label>
       </div>
-      <label class="case" id="zone-remplacer" hidden><input type="checkbox" id="opt-remplacer"> Remplacer la vidéo d'origine par le MKV, une fois ses pistes vérifiées (l'original va à la corbeille)</label>
+      <label class="case" id="zone-remplacer" hidden><input type="checkbox" id="opt-remplacer"> <span data-i18n="ui.goal.replace"></span></label>
       <div class="aide" id="note-objectif"></div>
     </div>
     <div class="options">
-      <label>Transcription
+      <label><span data-i18n="ui.transcription"></span>
         <select id="opt-transcription"></select>
       </label>
-      <label>Traduction
+      <label><span data-i18n="ui.translation"></span>
         <select id="opt-traducteur"></select>
       </label>
-      <label>Langue parlée
-        <select id="opt-langue">
-          <option value="">détection automatique</option>
-          <option value="en">anglais</option><option value="fr">français</option>
-          <option value="de">allemand</option><option value="es">espagnol</option><option value="it">italien</option>
-          <option value="pt">portugais</option><option value="nl">néerlandais</option>
-        </select>
+      <label><span data-i18n="ui.spoken_language"></span>
+        <select id="opt-langue"></select>
       </label>
       <div class="large groupe">
-        <span class="aide">Langues de traduction (un fichier par langue, en plus de celui de la langue parlée)</span>
+        <span class="aide" data-i18n="ui.targets_help"></span>
         <div id="opt-langues" class="cases"></div>
       </div>
       <div class="large groupe">
-        <span class="aide">Fichiers de sous-titres posés</span>
+        <span class="aide" data-i18n="ui.dest.title"></span>
         <div class="cases">
-          <label class="case"><input type="checkbox" id="opt-dest-a-cote"> à côté de la vidéo (son nom + langue : chargés seuls par VLC)</label>
-          <label class="case"><input type="checkbox" id="opt-dest-sortie"> dans le dossier de sortie</label>
-          <span class="aide" id="sortie-rappel" title="Le dossier de sortie sert aussi aux vidéos YouTube téléchargées et aux fichiers de travail (.travail)"></span>
+          <label class="case"><input type="checkbox" id="opt-dest-a-cote"> <span data-i18n="ui.dest.next_to"></span></label>
+          <label class="case"><input type="checkbox" id="opt-dest-sortie"> <span data-i18n="ui.dest.output"></span></label>
+          <span class="aide" id="sortie-rappel" data-i18n-title="ui.dest.reminder_title"></span>
         </div>
         <div class="ligne" id="zone-sortie" hidden>
-          <input id="opt-sortie" type="text" spellcheck="false" placeholder="Dossier de sortie">
-          <button type="button" id="btn-dossier" class="secondaire">Parcourir…</button>
+          <input id="opt-sortie" type="text" spellcheck="false" data-i18n-placeholder="ui.output_folder">
+          <button type="button" id="btn-dossier" class="secondaire" data-i18n="ui.browse"></button>
         </div>
       </div>
-      <label class="case large"><input type="checkbox" id="opt-pause"> <span id="opt-pause-texte">Pause avant la traduction : voir l'estimation du coût, puis choisir le traducteur</span></label>
-      <label class="case large"><input type="checkbox" id="opt-refaire"> Refaire la transcription et la traduction si elles existent</label>
+      <label class="case large"><input type="checkbox" id="opt-pause"> <span id="opt-pause-texte" data-i18n="ui.pause_option"></span></label>
+      <label class="case large"><input type="checkbox" id="opt-refaire"> <span data-i18n="ui.redo_option"></span></label>
     </div>
     <div id="moteur-trad" class="moteur-inline" hidden></div>
     <div class="actions" id="dossier-actions" hidden>
-      <label class="case" id="zone-relecture"><input type="checkbox" id="opt-relecture"> Relecture IA des noms propres, à vérifier avant la traduction (Claude, quelques centimes par vidéo)</label>
-      <button type="button" class="principal" id="btn-lancer-lot">Lancer le lot</button>
+      <label class="case" id="zone-relecture"><input type="checkbox" id="opt-relecture"> <span data-i18n="ui.review_option"></span></label>
+      <button type="button" class="principal" id="btn-lancer-lot" data-i18n="ui.start_batch"></button>
       <span class="aide" id="dossier-resume"></span>
     </div>
     <datalist id="modeles-claude"><option value="claude-sonnet-5-5"><option value="claude-opus-5-5"><option value="claude-haiku-5-5"></datalist>
@@ -133,65 +129,65 @@
 
   <section class="carte" id="lot" hidden>
     <div class="entete">
-      <h2>Lot <span class="aide" id="lot-racine"></span></h2>
+      <h2><span data-i18n="ui.batch.title"></span> <span class="aide" id="lot-racine"></span></h2>
       <span class="etat" id="lot-etat" role="status"></span>
-      <button type="button" class="secondaire" id="btn-lot-suspendre" title="S'arrête à la fin de la vidéo en cours ; le fichier de lot permet de reprendre plus tard">Pause</button>
-      <button type="button" class="secondaire" id="btn-lot-reprendre">Reprendre</button>
-      <button type="button" class="secondaire" id="btn-lot-reessayer" title="Remet les vidéos en erreur dans la liste à traiter" hidden>Réessayer</button>
-      <button type="button" class="secondaire danger" id="btn-lot-annuler">Annuler</button>
+      <button type="button" class="secondaire" id="btn-lot-suspendre" data-i18n="ui.batch.pause" data-i18n-title="ui.batch.pause_title"></button>
+      <button type="button" class="secondaire" id="btn-lot-reprendre" data-i18n="ui.batch.resume"></button>
+      <button type="button" class="secondaire" id="btn-lot-reessayer" data-i18n-title="ui.batch.retry_title" hidden></button>
+      <button type="button" class="secondaire danger" id="btn-lot-annuler" data-i18n="ui.cancel"></button>
     </div>
     <p class="aide" id="lot-info-pause" hidden></p>
     <div class="progression" id="lot-progression"><div class="barre"></div><span class="texte"></span></div>
     <div id="lot-actives" class="lot-actives" hidden></div>
     <div class="lot-objectif" id="lot-zone-objectif" hidden>
-      <label>Ce lot produit <select id="lot-objectif"><option value="traduction">Sous-titres seulement</option><option value="assemblage">Sous-titres + doublage</option></select></label>
-      <label class="case" id="lot-zone-remplacer" hidden><input type="checkbox" id="lot-remplacer"> Remplacer chaque vidéo d'origine par son MKV vérifié (l'original va à la corbeille)</label>
+      <label><span data-i18n="ui.batch.produces"></span> <select id="lot-objectif"><option value="traduction" data-i18n="ui.goal.subtitles"></option><option value="assemblage" data-i18n="ui.goal.dubbing"></option></select></label>
+      <label class="case" id="lot-zone-remplacer" hidden><input type="checkbox" id="lot-remplacer"> <span data-i18n="ui.batch.replace"></span></label>
       <span class="aide" id="lot-note-objectif"></span>
     </div>
     <div class="aide" id="lot-fichier"></div>
     <div id="lot-suspendu" class="pause" hidden>
-      <div><strong>Réglages pour la suite du lot</strong> <span class="aide">Appliqués au clic sur Reprendre, aux vidéos pas encore lancées ; une vidéo déjà en cours finit avec les siens.</span></div>
+      <div><strong data-i18n="ui.batch.next_settings"></strong> <span class="aide" data-i18n="ui.batch.next_settings_help"></span></div>
       <div class="options">
-        <label>Transcription <select id="lot-susp-transcription"></select></label>
-        <label>Traducteur <select id="lot-susp-traducteur"></select></label>
-        <div class="large groupe"><span class="aide">Langues de traduction</span><div id="lot-susp-langues" class="cases"></div></div>
+        <label><span data-i18n="ui.transcription"></span> <select id="lot-susp-transcription"></select></label>
+        <label><span data-i18n="ui.translator"></span> <select id="lot-susp-traducteur"></select></label>
+        <div class="large groupe"><span class="aide" data-i18n="ui.target_languages"></span><div id="lot-susp-langues" class="cases"></div></div>
       </div>
     </div>
     <div id="lot-pause" class="pause" hidden>
-      <div><strong>Toutes les vidéos sont transcrites</strong> <span class="aide" id="lot-pause-resume"></span></div>
+      <div><strong data-i18n="ui.batch.all_transcribed"></strong> <span class="aide" id="lot-pause-resume"></span></div>
       <div class="actions" id="lot-a-verifier" hidden>
         <span id="lot-a-verifier-texte"></span>
-        <button type="button" class="secondaire" id="btn-lot-verifier">Vérifier les noms</button>
+        <button type="button" class="secondaire" id="btn-lot-verifier" data-i18n="ui.check_names"></button>
       </div>
       <div class="couts" id="lot-couts"></div>
       <div class="options">
-        <label>Traducteur <select id="lot-traducteur"></select></label>
-        <label id="lot-zone-modele" hidden>Modèle <select id="lot-modele"></select></label>
-        <label id="lot-zone-effort" hidden>Effort de réflexion <select id="lot-effort"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>
-        <div class="large aide" id="lot-note-effort" hidden>Estimation mesurée avec l'effort low : un effort supérieur consomme davantage de jetons de sortie, le coût réel sera plus élevé.</div>
-        <div class="large groupe"><span class="aide">Langues de traduction</span><div id="lot-langues" class="cases"></div></div>
+        <label><span data-i18n="ui.translator"></span> <select id="lot-traducteur"></select></label>
+        <label id="lot-zone-modele" hidden><span data-i18n="ui.model"></span> <select id="lot-modele"></select></label>
+        <label id="lot-zone-effort" hidden><span data-i18n="ui.effort"></span> <select id="lot-effort"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>
+        <div class="large aide" id="lot-note-effort" hidden data-i18n="ui.batch.effort_note"></div>
+        <div class="large groupe"><span class="aide" data-i18n="ui.target_languages"></span><div id="lot-langues" class="cases"></div></div>
       </div>
       <div class="actions">
-        <button type="button" class="principal" id="btn-lot-traduire">Traduire tout</button>
-        <button type="button" class="secondaire" id="btn-lot-sans-traduire">Terminer sans traduire</button>
+        <button type="button" class="principal" id="btn-lot-traduire" data-i18n="ui.batch.translate_all"></button>
+        <button type="button" class="secondaire" id="btn-lot-sans-traduire" data-i18n="ui.finish_untranslated"></button>
         <span class="aide" id="lot-message"></span>
       </div>
     </div>
     <div id="validation" class="pause" hidden>
-      <div><strong id="validation-titre"></strong> <span class="aide">Les noms cochés corrigent les sous-titres et guident la traduction. La transcription brute n'est jamais modifiée.</span></div>
+      <div><strong id="validation-titre"></strong> <span class="aide" data-i18n="ui.names.help"></span></div>
       <div class="actions">
-        <button type="button" class="secondaire petit" id="btn-validation-tout">Tout cocher</button>
-        <button type="button" class="secondaire petit" id="btn-validation-rien">Tout décocher</button>
+        <button type="button" class="secondaire petit" id="btn-validation-tout" data-i18n="ui.check_all"></button>
+        <button type="button" class="secondaire petit" id="btn-validation-rien" data-i18n="ui.uncheck_all"></button>
       </div>
       <div class="validation-liste">
         <table>
-          <thead><tr><th></th><th>Entendu</th><th>Correction</th><th>En français</th><th>Pourquoi</th></tr></thead>
+          <thead><tr><th></th><th data-i18n="ui.names.heard"></th><th data-i18n="ui.names.fix"></th><th data-i18n="ui.names.french"></th><th data-i18n="ui.names.why"></th></tr></thead>
           <tbody id="validation-lignes"></tbody>
         </table>
       </div>
       <div class="actions">
         <button type="button" class="principal" id="btn-validation-valider"></button>
-        <button type="button" class="secondaire" id="btn-validation-fermer">Fermer</button>
+        <button type="button" class="secondaire" id="btn-validation-fermer" data-i18n="ui.close"></button>
         <span class="aide" id="validation-message"></span>
       </div>
     </div>
@@ -200,92 +196,92 @@
 
   <section class="carte" id="tache" hidden>
     <div class="entete">
-      <h2 id="tache-titre">Tâche</h2>
+      <h2 id="tache-titre" data-i18n="ui.task.title"></h2>
       <span class="etat" id="tache-etat" role="status"></span>
-      <button id="btn-annuler" class="secondaire danger">Annuler</button>
-      <button type="button" id="btn-relancer" class="principal" title="Relance cette vidéo avec les mêmes réglages ; ce qui est déjà fait est réutilisé" hidden>Relancer</button>
+      <button id="btn-annuler" class="secondaire danger" data-i18n="ui.cancel"></button>
+      <button type="button" id="btn-relancer" class="principal" data-i18n="ui.retry" data-i18n-title="ui.retry_title" hidden></button>
     </div>
     <ol class="etapes" id="etapes">
-      <li data-etape="source">Source</li>
-      <li data-etape="transcription">Transcription</li>
-      <li data-etape="decoupe">Découpe</li>
-      <li data-etape="relecture" hidden>Relecture</li>
-      <li data-etape="traduction">Traduction</li>
-      <li data-etape="fin">Fichiers</li>
-      <li data-etape="doublage" hidden>Doublage</li>
+      <li data-etape="source" data-i18n="ui.step.source"></li>
+      <li data-etape="transcription" data-i18n="ui.transcription"></li>
+      <li data-etape="decoupe" data-i18n="ui.step.split"></li>
+      <li data-etape="relecture" data-i18n="ui.step.review" hidden></li>
+      <li data-etape="traduction" data-i18n="ui.translation"></li>
+      <li data-etape="fin" data-i18n="ui.step.files"></li>
+      <li data-etape="doublage" data-i18n="ui.step.dubbing" hidden></li>
       <li data-etape="assemblage" hidden>MKV</li>
     </ol>
     <div id="pause" class="pause" hidden>
-      <div><strong id="pause-titre">En pause avant la traduction</strong> <span class="aide" id="pause-resume"></span></div>
+      <div><strong id="pause-titre" data-i18n="ui.task.paused_title"></strong> <span class="aide" id="pause-resume"></span></div>
       <div class="couts" id="pause-couts"></div>
       <div class="options">
-        <label>Traducteur <select id="pause-traducteur"></select></label>
-        <div class="large groupe"><span class="aide">Langues de traduction</span><div id="pause-langues" class="cases"></div></div>
+        <label><span data-i18n="ui.translator"></span> <select id="pause-traducteur"></select></label>
+        <div class="large groupe"><span class="aide" data-i18n="ui.target_languages"></span><div id="pause-langues" class="cases"></div></div>
       </div>
       <div class="actions">
-        <button type="button" class="principal" id="btn-traduire">Traduire</button>
-        <button type="button" class="secondaire" id="btn-sans-traduire" title="Pose seulement les sous-titres dans la langue parlée">Terminer sans traduire</button>
+        <button type="button" class="principal" id="btn-traduire" data-i18n="ui.translate"></button>
+        <button type="button" class="secondaire" id="btn-sans-traduire" data-i18n="ui.finish_untranslated" data-i18n-title="ui.task.finish_untranslated_title"></button>
         <span class="aide" id="pause-message"></span>
       </div>
     </div>
     <div id="resultat" class="resultat" hidden></div>
     <pre id="journal" class="journal"><span id="journal-texte"></span><span id="journal-minuteur" class="minuteur"></span></pre>
-    <div class="actions-journal"><button type="button" id="btn-relancer-journal" class="secondaire petit" title="Relance cette vidéo avec les mêmes réglages ; ce qui est déjà fait est réutilisé" hidden>Relancer</button></div>
+    <div class="actions-journal"><button type="button" id="btn-relancer-journal" class="secondaire petit" data-i18n="ui.retry" data-i18n-title="ui.retry_title" hidden></button></div>
   </section>
 
   <section class="carte" id="historique-carte">
-    <div class="entete"><h2>Historique</h2><button type="button" class="secondaire petit" id="btn-historique" hidden>Voir plus</button></div>
+    <div class="entete"><h2 data-i18n="ui.history.title"></h2><button type="button" class="secondaire petit" id="btn-historique" hidden></button></div>
     <ul id="historique" class="historique"></ul>
   </section>
 </main>
 
 <dialog id="dlg-reglages">
   <form method="dialog" id="form-reglages">
-    <div class="entete"><h2>Réglages</h2><button type="button" class="fermer" id="btn-fermer-reglages" aria-label="Fermer">×</button></div>
-    <p class="aide">Les clés ne sont jamais saisies ici : une référence <code>env:&lt;NOM&gt;</code> (variable d'environnement), <code>file:&lt;chemin&gt;</code> (fichier qui contient la clé) ou <code>sops:&lt;fichier&gt;#&lt;NOM&gt;</code> (si sops est installé).</p>
+    <div class="entete"><h2 data-i18n="ui.settings"></h2><button type="button" class="fermer" id="btn-fermer-reglages" data-i18n-aria-label="ui.close">×</button></div>
+    <p class="aide" data-i18n-html="ui.cfg.keys_help"></p>
 
-    <h3>Général</h3>
+    <h3 data-i18n="ui.cfg.general"></h3>
     <div class="grille">
-      <label>Dossier de sortie <input type="text" id="cfg-sortie"></label>
-      <label>Langue parlée par défaut <input type="text" id="cfg-langue" placeholder="vide = détection"></label>
-      <label>Commande yt-dlp (JSON) <input type="text" id="cfg-youtube"></label>
-      <label>Sous-titres par lot de traduction <input type="number" id="cfg-lot" min="1" max="100"></label>
-      <label>Arrêt du service après (minutes sans activité, 0 = jamais) <input type="number" id="cfg-inactivite" min="0" max="10080"></label>
+      <label><span data-i18n="ui.output_folder"></span> <input type="text" id="cfg-sortie"></label>
+      <label><span data-i18n="ui.cfg.default_language"></span> <input type="text" id="cfg-langue" data-i18n-placeholder="ui.cfg.default_language_placeholder"></label>
+      <label><span data-i18n="ui.cfg.ytdlp"></span> <input type="text" id="cfg-youtube"></label>
+      <label><span data-i18n="ui.cfg.chunk"></span> <input type="number" id="cfg-lot" min="1" max="100"></label>
+      <label><span data-i18n="ui.cfg.idle"></span> <input type="number" id="cfg-inactivite" min="0" max="10080"></label>
     </div>
 
-    <h3>Serveurs de transcription <button type="button" class="secondaire petit" id="btn-ajout-transcription">Ajouter</button></h3>
+    <h3><span data-i18n="ui.cfg.servers"></span> <button type="button" class="secondaire petit" id="btn-ajout-transcription" data-i18n="ui.add"></button></h3>
     <div id="liste-transcriptions" class="moteurs-liste"></div>
 
-    <h3>Traducteurs <button type="button" class="secondaire petit" id="btn-ajout-traducteur">Ajouter</button></h3>
+    <h3><span data-i18n="ui.cfg.translators"></span> <button type="button" class="secondaire petit" id="btn-ajout-traducteur" data-i18n="ui.add"></button></h3>
     <div id="liste-traducteurs" class="moteurs-liste"></div>
 
-    <h3>Nettoyage du dossier de travail <span class="aide">(<code>&lt;sortie&gt;/.travail/&lt;nom&gt;/</code>, à la fin de chaque tâche)</span></h3>
+    <h3><span data-i18n="ui.cfg.cleanup"></span> <span class="aide" data-i18n="ui.cfg.cleanup_help"></span></h3>
     <div class="cases">
-      <label class="case"><input type="checkbox" id="cfg-net-audio"> Audio extrait <span class="aide" data-bilan="audio"></span></label>
-      <label class="case"><input type="checkbox" id="cfg-net-sous-titres"> Copies .srt/.vtt <span class="aide" data-bilan="sous_titres"></span></label>
-      <label class="case"><input type="checkbox" id="cfg-net-transcription"> Transcription et traductions brutes (.json) <span class="aide" data-bilan="transcription"></span></label>
-      <label class="case"><input type="checkbox" id="cfg-net-journaux"> Journaux <span class="aide" data-bilan="journaux"></span></label>
-      <label class="case">de plus de <input type="number" id="cfg-net-age" min="0" max="8760" style="width:70px"> h (purgés au démarrage de l'interface)</label>
+      <label class="case"><input type="checkbox" id="cfg-net-audio"> <span data-i18n="ui.cfg.clean_audio"></span> <span class="aide" data-bilan="audio"></span></label>
+      <label class="case"><input type="checkbox" id="cfg-net-sous-titres"> <span data-i18n="ui.cfg.clean_subtitles"></span> <span class="aide" data-bilan="sous_titres"></span></label>
+      <label class="case"><input type="checkbox" id="cfg-net-transcription"> <span data-i18n="ui.cfg.clean_transcription"></span> <span class="aide" data-bilan="transcription"></span></label>
+      <label class="case"><input type="checkbox" id="cfg-net-journaux"> <span data-i18n="ui.cfg.clean_logs"></span> <span class="aide" data-bilan="journaux"></span></label>
+      <label class="case"><span data-i18n="ui.cfg.older_than"></span> <input type="number" id="cfg-net-age" min="0" max="8760" style="width:70px"> <span data-i18n="ui.cfg.older_than_help"></span></label>
     </div>
     <div class="actions">
-      <button type="button" class="secondaire petit" id="btn-nettoyer">Nettoyer maintenant</button>
-      <span class="aide" id="nettoyage-retour">Applique les cases ci-dessus à tous les dossiers de travail (journaux : seulement les plus vieux).</span>
+      <button type="button" class="secondaire petit" id="btn-nettoyer" data-i18n="ui.cfg.clean_now"></button>
+      <span class="aide" id="nettoyage-retour" data-i18n="ui.cfg.clean_now_help"></span>
     </div>
 
-    <h3>Mise en forme des sous-titres</h3>
+    <h3 data-i18n="ui.cfg.layout"></h3>
     <div class="grille">
-      <label>Caractères par ligne <input type="number" id="cfg-cpl" min="20" max="80"></label>
-      <label>Lignes <input type="number" id="cfg-lignes" min="1" max="3"></label>
-      <label>Durée max (s) <input type="number" id="cfg-dmax" step="0.5" min="2" max="12"></label>
-      <label>Durée min (s) <input type="number" id="cfg-dmin" step="0.1" min="0.3" max="3"></label>
-      <label>Pause qui coupe (s) <input type="number" id="cfg-pause" step="0.1" min="0.2" max="3"></label>
-      <label>Lecture (car./s) <input type="number" id="cfg-cps" min="8" max="30"></label>
+      <label><span data-i18n="ui.cfg.cpl"></span> <input type="number" id="cfg-cpl" min="20" max="80"></label>
+      <label><span data-i18n="ui.cfg.lines"></span> <input type="number" id="cfg-lignes" min="1" max="3"></label>
+      <label><span data-i18n="ui.cfg.max_duration"></span> <input type="number" id="cfg-dmax" step="0.5" min="2" max="12"></label>
+      <label><span data-i18n="ui.cfg.min_duration"></span> <input type="number" id="cfg-dmin" step="0.1" min="0.3" max="3"></label>
+      <label><span data-i18n="ui.cfg.gap"></span> <input type="number" id="cfg-pause" step="0.1" min="0.2" max="3"></label>
+      <label><span data-i18n="ui.cfg.cps"></span> <input type="number" id="cfg-cps" min="8" max="30"></label>
     </div>
 
     <div class="pied">
       <span id="reglages-message" class="aide"></span>
-      <button type="button" class="secondaire" id="btn-annuler-reglages">Annuler</button>
-      <button type="button" class="principal" id="btn-enregistrer-reglages">Enregistrer</button>
+      <button type="button" class="secondaire" id="btn-annuler-reglages" data-i18n="ui.cancel"></button>
+      <button type="button" class="principal" id="btn-enregistrer-reglages" data-i18n="ui.save"></button>
     </div>
   </form>
 </dialog>
@@ -294,17 +290,17 @@
   <div class="moteur">
     <div class="grille">
       <label>Id <input type="text" data-champ="id"></label>
-      <label>Nom <input type="text" data-champ="nom"></label>
-      <label>URL <input type="text" data-champ="url" placeholder="http://hôte:8000"></label>
-      <label>Clé (référence) <input type="text" data-champ="cle" placeholder="env:NOM, file:chemin, sops:…#NOM ou vide"></label>
-      <label>Vitesse (s d'audio par seconde de calcul) <input type="text" data-champ="vitesse" placeholder="vide = temps non annoncé"></label>
-      <label class="large">Commande locale (JSON, vide = serveur distant) <input type="text" data-champ="commande"></label>
-      <label>Dossier de la commande <input type="text" data-champ="dossier"></label>
+      <label><span data-i18n="ui.eng.name"></span> <input type="text" data-champ="nom"></label>
+      <label>URL <input type="text" data-champ="url" data-i18n-placeholder="ui.eng.url_placeholder"></label>
+      <label><span data-i18n="ui.eng.key"></span> <input type="text" data-champ="cle" data-i18n-placeholder="ui.eng.key_placeholder"></label>
+      <label><span data-i18n="ui.eng.speed"></span> <input type="text" data-champ="vitesse" data-i18n-placeholder="ui.eng.speed_placeholder"></label>
+      <label class="large"><span data-i18n="ui.eng.command"></span> <input type="text" data-champ="commande"></label>
+      <label><span data-i18n="ui.eng.command_folder"></span> <input type="text" data-champ="dossier"></label>
     </div>
     <div class="actions">
-      <label class="case"><input type="radio" name="transcription-active" data-champ="actif"> Actif</label>
-      <button type="button" class="secondaire petit" data-action="tester">Tester</button>
-      <button type="button" class="secondaire petit danger" data-action="supprimer">Supprimer</button>
+      <label class="case"><input type="radio" name="transcription-active" data-champ="actif"> <span data-i18n="ui.eng.active"></span></label>
+      <button type="button" class="secondaire petit" data-action="tester" data-i18n="ui.eng.test"></button>
+      <button type="button" class="secondaire petit danger" data-action="supprimer" data-i18n="ui.eng.delete"></button>
       <span class="aide" data-role="retour"></span>
     </div>
   </div>
@@ -314,32 +310,33 @@
   <div class="moteur">
     <div class="grille">
       <label>Id <input type="text" data-champ="id"></label>
-      <label>Nom <input type="text" data-champ="nom"></label>
-      <label>Type
+      <label><span data-i18n="ui.eng.name"></span> <input type="text" data-champ="nom"></label>
+      <label><span data-i18n="ui.eng.type"></span>
         <select data-champ="type">
-          <option value="openai">API compatible OpenAI (llama.cpp, Ollama, OpenAI, Mistral…)</option>
-          <option value="claude">Claude (API Anthropic)</option>
-          <option value="aucun">Pas de traduction</option>
+          <option value="openai" data-i18n="ui.eng.type_openai"></option>
+          <option value="claude" data-i18n="ui.eng.type_claude"></option>
+          <option value="aucun" data-i18n="ui.eng.type_none"></option>
         </select>
       </label>
-      <label>Modèle <input type="text" data-champ="modele"></label>
-      <label>Effort de réflexion (Claude)
-        <select data-champ="effort"><option value="">défaut (low)</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>
+      <label><span data-i18n="ui.model"></span> <input type="text" data-champ="modele"></label>
+      <label><span data-i18n="ui.eng.effort_claude"></span>
+        <select data-champ="effort"><option value="" data-i18n="ui.effort_default"></option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>
       </label>
-      <label>URL (OpenAI) <input type="text" data-champ="url" placeholder="http://127.0.0.1:8080"></label>
-      <label>Clé (référence) <input type="text" data-champ="cle" placeholder="env:NOM, file:chemin, sops:…#NOM ou vide"></label>
-      <label>Supervision (démarre l'IA locale) <input type="text" data-champ="supervision" placeholder="http://127.0.0.1:8300 ou vide"></label>
-      <label class="case"><input type="checkbox" data-champ="arreter_apres"> Arrêter l'IA locale après la tâche</label>
+      <label><span data-i18n="ui.eng.url_openai"></span> <input type="text" data-champ="url" placeholder="http://127.0.0.1:8080"></label>
+      <label><span data-i18n="ui.eng.key"></span> <input type="text" data-champ="cle" data-i18n-placeholder="ui.eng.key_placeholder"></label>
+      <label><span data-i18n="ui.supervision"></span> <input type="text" data-champ="supervision" data-i18n-placeholder="ui.eng.supervision_placeholder"></label>
+      <label class="case"><input type="checkbox" data-champ="arreter_apres"> <span data-i18n="ui.stop_after"></span></label>
     </div>
     <div class="actions">
-      <label class="case"><input type="radio" name="traducteur-actif" data-champ="actif"> Actif</label>
-      <button type="button" class="secondaire petit" data-action="tester">Tester</button>
-      <button type="button" class="secondaire petit danger" data-action="supprimer">Supprimer</button>
+      <label class="case"><input type="radio" name="traducteur-actif" data-champ="actif"> <span data-i18n="ui.eng.active"></span></label>
+      <button type="button" class="secondaire petit" data-action="tester" data-i18n="ui.eng.test"></button>
+      <button type="button" class="secondaire petit danger" data-action="supprimer" data-i18n="ui.eng.delete"></button>
       <span class="aide" data-role="retour"></span>
     </div>
   </div>
 </template>
 
+<script src="/static/i18n.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

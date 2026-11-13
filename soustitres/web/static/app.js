@@ -8,7 +8,7 @@ let journalLu = 0;
 let minuteur = null;
 
 async function api(methode, chemin, corps) {
-  const r = await fetch(chemin, { method: methode, headers: corps !== undefined ? { "Content-Type": "application/json" } : {},
+  const r = await fetch(chemin, { method: methode, headers: { "X-Langue": I18N.langue, ...(corps !== undefined ? { "Content-Type": "application/json" } : {}) },
                                   body: corps !== undefined ? JSON.stringify(corps) : undefined });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(d.erreur || `${r.status} ${r.statusText}`); e.donnees = d; throw e; }
@@ -16,7 +16,9 @@ async function api(methode, chemin, corps) {
 }
 
 /* « Mon serveur (détails…) » devient « Mon serveur » dans l'en-tête ; le nom complet reste au survol. */
-function nomCourt(m) { return (m?.nom || m?.id || "?").replace(/\s*\(.*$/, "") || m?.nom; }
+/* Nom affiché d'un moteur : son nom, sinon un nom traduit d'après son id (moteurs fournis par défaut). */
+function nomMoteur(m) { return m?.nom || (m ? etiquette("engine.", m.id) : "?"); }
+function nomCourt(m) { return nomMoteur(m).replace(/\s*\(.*$/, "") || nomMoteur(m); }
 
 function moteur(liste, id) { return (config?.[liste] || []).find((m) => m.id === id); }
 
@@ -28,7 +30,7 @@ function themeActuel() {
 function majBoutonTheme() {
   const sombre = themeActuel() === "dark", b = $("#btn-theme");
   b.textContent = sombre ? "☀" : "☾";
-  b.title = sombre ? "Passer au thème clair" : "Passer au thème sombre";
+  b.title = sombre ? T("ui.theme.to_light") : T("ui.theme.to_dark");
   b.setAttribute("aria-label", b.title);
 }
 $("#btn-theme").addEventListener("click", () => {
@@ -37,8 +39,6 @@ $("#btn-theme").addEventListener("click", () => {
   try { localStorage.setItem("theme", t); } catch (e) { /* navigation privée : valable pour cette page seulement */ }
   majBoutonTheme();
 });
-majBoutonTheme();
-
 // --- Zones à défilement : ombre et flèche tant qu'il reste du contenu -------------------------------------------
 
 function surveillerDefilement(el) {
@@ -52,7 +52,7 @@ function surveillerDefilement(el) {
     zone.appendChild(b);
     return b;
   };
-  const monter = creerFleche("fleche-defil monter", "▴", "Remonter", -1), descendre = creerFleche("fleche-defil", "▾", "Descendre", 1);
+  const monter = creerFleche("fleche-defil monter", "▴", T("ui.scroll_up"), -1), descendre = creerFleche("fleche-defil", "▾", T("ui.scroll_down"), 1);
   let prevu = false;
   const maj = () => {
     prevu = false;
@@ -68,7 +68,6 @@ function surveillerDefilement(el) {
   new MutationObserver(planifier).observe(el, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["hidden"] });
   maj();
 }
-for (const s of ["#dossier-arbre", "#lot-videos", "#journal", "#historique"]) surveillerDefilement($(s));
 
 // --- Chargement -----------------------------------------------------------------------------------------------
 
@@ -92,7 +91,7 @@ async function charger() {
   const lien = $("#lien-github");
   lien.href = github || "#";
   lien.setAttribute("aria-disabled", github ? "false" : "true");
-  lien.title = github ? "Dépôt GitHub du projet" : "Dépôt GitHub : pas encore publié";
+  lien.title = github ? T("ui.github") : T("ui.github_unpublished");
   await majEtat();
   await majHistorique();
   await verifierDernierLot();
@@ -100,22 +99,39 @@ async function charger() {
 
 // --- Langues cibles (cases + champ libre pour les autres codes) -------------------------------------------------
 
-const LANGUES = [["fr", "français"], ["en", "anglais"], ["de", "allemand"], ["es", "espagnol"], ["it", "italien"], ["pt", "portugais"], ["nl", "néerlandais"]];
-const NOMS_LANGUES = Object.fromEntries(LANGUES.concat([["pl", "polonais"], ["ru", "russe"], ["uk", "ukrainien"], ["tr", "turc"], ["ar", "arabe"], ["ja", "japonais"], ["zh", "chinois"], ["ko", "coréen"]]));
+const LANGUES = ["fr", "en", "de", "es", "it", "pt", "nl"];      // proposées en cases ; les autres se saisissent par leur code
+
+/* Langue parlée : détection automatique ou l'une des langues proposées. */
+function remplirLanguesParlees() {
+  $("#opt-langue").replaceChildren(new Option(T("ui.auto_detect"), ""), ...LANGUES.map((c) => new Option(nomLangue(c), c)));
+}
+
+/* Langue de l'interface : automatique (navigateur) ou imposée ; enregistrée dans la configuration, pour le journal aussi. */
+function remplirChoixLangue() {
+  const sel = $("#choix-langue");
+  const auto = choisirLangue(navigator.languages || [navigator.language], I18N.disponibles);
+  sel.replaceChildren(new Option(T("ui.lang_auto", { lang: autonyme(auto) }), ""), ...I18N.disponibles.map((c) => new Option(autonyme(c), c)));
+  sel.value = I18N.reglage;
+  sel.hidden = I18N.disponibles.length < 2;
+}
+$("#choix-langue").addEventListener("change", async () => {
+  try { config = await api("PUT", "/api/config", { ...config, langue_interface: $("#choix-langue").value }); location.reload(); }
+  catch (err) { alert(err.message); }
+});
 
 function remplirLangues(zone, codes) {
   zone.innerHTML = "";
-  for (const [code, nom] of LANGUES) {
+  for (const code of LANGUES) {
     const l = document.createElement("label"); l.className = "case";
     const c = document.createElement("input"); c.type = "checkbox"; c.value = code; c.checked = codes.includes(code);
-    l.append(c, document.createTextNode(" " + nom));
+    l.append(c, document.createTextNode(" " + nomLangue(code)));
     zone.appendChild(l);
   }
   const l = document.createElement("label"); l.className = "case";
   const autres = document.createElement("input"); autres.type = "text"; autres.dataset.role = "autres"; autres.spellcheck = false;
-  autres.placeholder = "autres : pl, ru…"; autres.title = "Codes de langue séparés par des virgules";
-  autres.value = codes.filter((c) => !LANGUES.some(([k]) => k === c)).join(", ");
-  l.append(document.createTextNode("autres "), autres);
+  autres.placeholder = T("ui.langs.others_placeholder"); autres.title = T("ui.langs.others_title");
+  autres.value = codes.filter((c) => !LANGUES.includes(c)).join(", ");
+  l.append(document.createTextNode(T("ui.langs.others") + " "), autres);
   zone.appendChild(l);
 }
 
@@ -124,8 +140,6 @@ function lireLangues(zone = $("#opt-langues")) {
   for (const c of zone.querySelector("[data-role=autres]").value.toLowerCase().split(/[\s,;]+/)) if (c && !codes.includes(c)) codes.push(c);
   return codes;
 }
-
-function nomLangue(code) { return NOMS_LANGUES[code] || code; }
 
 /* Pause avant la traduction : cochée par défaut sauf pour une IA locale (gratuite) ou « aucun ». */
 function pauseParDefaut(m) {
@@ -138,7 +152,7 @@ function remplirSelect(sel, liste, actif) {
   sel.innerHTML = "";
   for (const m of liste || []) {
     const o = document.createElement("option");
-    o.value = m.id; o.textContent = m.nom || m.id;
+    o.value = m.id; o.textContent = nomMoteur(m);
     if (m.id === actif) o.selected = true;
     sel.appendChild(o);
   }
@@ -152,16 +166,16 @@ async function majEtat() {
     const tr = moteur("transcriptions", e.lot?.options?.transcription || $("#opt-transcription").value || e.transcription_active);
     const trad = moteur("traducteurs", e.lot?.options?.traducteur || $("#opt-traducteur").value || e.traducteur_actif);
     const pTr = $("#puce-transcription");
-    pTr.textContent = "Transcription : " + nomCourt(tr); pTr.title = tr?.nom || "";
+    pTr.textContent = T("ui.header.transcription", { name: nomCourt(tr) }); pTr.title = tr ? nomMoteur(tr) : "";
     pTr.className = "puce " + (tr?.commande ? ({ pret: "ok", demarrage: "attention", arrete: "" }[e.transcription_locale?.[tr.id]] || "") : "ok");
-    if (tr?.commande) pTr.title += " · serveur local : " + (e.transcription_locale?.[tr.id] || "?");
+    if (tr?.commande) pTr.title += " · " + T("ui.header.local_server", { state: etiquette("ui.server.", e.transcription_locale?.[tr.id] || "?") });
     const pTrad = $("#puce-traducteur");
-    pTrad.textContent = "Traduction : " + nomCourt(trad); pTrad.title = trad?.nom || "";
+    pTrad.textContent = T("ui.header.translator", { name: nomCourt(trad) }); pTrad.title = trad ? nomMoteur(trad) : "";
     pTrad.className = "puce ok";
     const pIa = $("#puce-ia");
     if (e.ia_locale && trad?.supervision) {
       pIa.hidden = false;
-      pIa.textContent = "IA locale : " + ({ pret: "prête", demarrage: "démarrage", arrete: "arrêtée", arret_securite: "arrêt de sécurité", erreur: "erreur" }[e.ia_locale.etat] || e.ia_locale.etat);
+      pIa.textContent = T("ui.header.local_ai", { state: etiquette("ui.ai.", e.ia_locale.etat) });
       pIa.className = "puce discret " + ({ pret: "ok", demarrage: "attention", erreur: "erreur", arret_securite: "erreur" }[e.ia_locale.etat] || "");
     } else pIa.hidden = true;
     if (e.tache && !tacheCourante && !modeParallele) await suivre(e.tache.id);
@@ -172,13 +186,15 @@ async function majEtat() {
 // --- Réglages du traducteur choisi, affichés sur la page -------------------------------------------------------
 
 const CHAMPS_TRADUCTEUR = {
-  claude: [["modele", "Modèle", { list: "modeles-claude", placeholder: "claude-sonnet-5-5" }],
-           ["effort", "Effort de réflexion", { select: [["", "défaut (low)"], ["low", "low"], ["medium", "medium"], ["high", "high"]] }]],
-  openai: [["url", "URL du serveur", { placeholder: "http://127.0.0.1:8080" }], ["modele", "Modèle", {}],
-           ["supervision", "Supervision (démarre l'IA locale)", { placeholder: "vide si aucune" }],
-           ["arreter_apres", "Arrêter l'IA locale après la tâche", { case: true }]],
+  claude: [["modele", "ui.model", { list: "modeles-claude", placeholder: "claude-sonnet-5-5" }],
+           ["effort", "ui.effort", { select: [["", "ui.effort_default"], ["low", "low"], ["medium", "medium"], ["high", "high"]] }]],
+  openai: [["url", "ui.server_url", { placeholder: "http://127.0.0.1:8080" }], ["modele", "ui.model", {}],
+           ["supervision", "ui.supervision", { placeholder: "ui.supervision_none" }],
+           ["arreter_apres", "ui.stop_after", { case: true }]],
   aucun: [],
 };
+
+const texteOuCle = (x) => (x.startsWith("ui.") ? T(x) : x);     // libellés de CHAMPS_TRADUCTEUR
 
 function afficherReglagesTraducteur() {
   const zone = $("#moteur-trad"), m = moteur("traducteurs", $("#opt-traducteur").value);
@@ -188,25 +204,25 @@ function afficherReglagesTraducteur() {
   if (!champs.length) return;
   const titre = document.createElement("div");
   titre.className = "titre";
-  titre.innerHTML = `<span>Réglages de <strong></strong> (enregistrés au démarrage d'une tâche)</span><span class="aide">clé d'API : dans Réglages</span>`;
-  titre.querySelector("strong").textContent = m.nom || m.id;
+  titre.innerHTML = `<span>${T("ui.engine.settings_of", { name: "<strong></strong>" })}</span><span class="aide">${T("ui.engine.key_in_settings")}</span>`;
+  titre.querySelector("strong").textContent = nomMoteur(m);
   zone.appendChild(titre);
   for (const [cle, libelle, o] of champs) {
     const l = document.createElement("label");
     if (o.case) {
       l.className = "case";
       const c = document.createElement("input"); c.type = "checkbox"; c.dataset.cle = cle; c.checked = !!m[cle];
-      l.append(c, document.createTextNode(" " + libelle));
+      l.append(c, document.createTextNode(" " + texteOuCle(libelle)));
     } else {
-      l.textContent = libelle;
+      l.textContent = texteOuCle(libelle);
       let e;
       if (o.select) {
         e = document.createElement("select");
-        for (const [v, t] of o.select) { const op = document.createElement("option"); op.value = v; op.textContent = t; e.appendChild(op); }
+        for (const [v, x] of o.select) { const op = document.createElement("option"); op.value = v; op.textContent = texteOuCle(x); e.appendChild(op); }
         e.value = m[cle] ?? "";
       } else {
         e = document.createElement("input"); e.type = "text"; e.value = m[cle] ?? ""; e.spellcheck = false;
-        if (o.placeholder) e.placeholder = o.placeholder;
+        if (o.placeholder) e.placeholder = texteOuCle(o.placeholder);
         if (o.list) e.setAttribute("list", o.list);
       }
       e.dataset.cle = cle;
@@ -237,7 +253,7 @@ function destinationPage() { return { a_cote: $("#opt-dest-a-cote").checked, sor
 function majZoneSortie() {
   const coche = $("#opt-dest-sortie").checked;
   $("#zone-sortie").hidden = !coche;
-  $("#sortie-rappel").textContent = coche ? "" : `(vidéos YouTube et travail dans ${$("#opt-sortie").value.trim() || "le dossier de sortie"})`;
+  $("#sortie-rappel").textContent = coche ? "" : T("ui.dest.reminder", { path: $("#opt-sortie").value.trim() || T("ui.dest.the_output_folder") });
 }
 $("#opt-dest-sortie").addEventListener("change", majZoneSortie);
 $("#opt-sortie").addEventListener("input", majZoneSortie);
@@ -256,13 +272,13 @@ function majObjectif() {
   const dispo = doublageActif(), zone = $("#opt-objectif-doublage");
   zone.disabled = !dispo;
   if (!dispo && zone.checked) document.querySelector("input[name=objectif][value=traduction]").checked = true;
-  $("#zone-objectif-doublage").title = dispo ? "" : "Le doublage n'est pas configuré : voir la table [doublage] de config.toml";
+  $("#zone-objectif-doublage").title = dispo ? "" : T("ui.goal.dub_unavailable");
   $("#zone-remplacer").hidden = objectifPage() !== "assemblage";
   if ($("#zone-remplacer").hidden) $("#opt-remplacer").checked = false;     // jamais conservé d'une fois sur l'autre : l'original part à la corbeille
   const note = $("#note-objectif"), langues = lireLangues(), sansTraducteur = moteur("traducteurs", $("#opt-traducteur").value)?.type === "aucun";
-  if (objectifPage() !== "assemblage") note.textContent = "Résultat : un fichier de sous-titres par langue.";
-  else if (sansTraducteur || !langues.length) note.textContent = "Le doublage a besoin d'une traduction : choisissez un traducteur et au moins une langue.";
-  else note.textContent = `Résultat : les sous-titres et un MKV avec les deux voix. Doublage en ${nomLangue(langues[0])}, environ 8 min 30 de carte graphique pour 30 min de vidéo.`;
+  if (objectifPage() !== "assemblage") note.textContent = T("ui.goal.result_subtitles");
+  else if (sansTraducteur || !langues.length) note.textContent = T("ui.goal.dub_needs_translation");
+  else note.textContent = T("ui.goal.result_dubbing", { lang: nomLangue(langues[0]) });
 }
 for (const r of document.querySelectorAll("input[name=objectif]")) r.addEventListener("change", majObjectif);
 $("#opt-traducteur").addEventListener("change", majObjectif);
@@ -281,7 +297,7 @@ async function enregistrerOptionsPage() {
 async function lancer(source) {
   if (!source) return;
   if (!$("#opt-dest-a-cote").checked && !$("#opt-dest-sortie").checked
-      && !confirm("Aucune destination cochée : les sous-titres resteront dans le dossier de travail. Continuer ?")) return;
+      && !confirm(T("ui.confirm_no_destination"))) return;
   $("#btn-go").disabled = true;
   try {
     await enregistrerReglagesTraducteur();
@@ -291,7 +307,7 @@ async function lancer(source) {
     suivre(t.id);
   } catch (err) {
     if (err.donnees?.dossier) ouvrirDossier(source);
-    else alert("Impossible de lancer : " + err.message);
+    else alert(T("ui.err.start", { error: err.message }));
   }
   finally { $("#btn-go").disabled = false; }
 }
@@ -304,10 +320,10 @@ $("#source").addEventListener("input", () => {
   const v = $("#source").value.trim();
   if (!/^https?:\/\//.test(v)) { $("#apercu").hidden = true; return; }
   delaiApercu = setTimeout(async () => {
-    $("#apercu").hidden = false; $("#apercu").textContent = "Lecture des informations de la vidéo…";
+    $("#apercu").hidden = false; $("#apercu").textContent = T("ui.preview.reading");
     try {
       const i = await api("POST", "/api/youtube", { url: v, sortie: $("#opt-sortie").value.trim() });
-      $("#apercu").textContent = i.ok ? `${i.titre} (${formaterDuree(i.duree)})${i.existe ? " : déjà téléchargée" : ""} → ${i.video}` : "yt-dlp : " + i.detail;
+      $("#apercu").textContent = i.ok ? `${i.titre} (${formaterDuree(i.duree)})${i.existe ? T("ui.preview.downloaded") : ""} → ${i.video}` : "yt-dlp : " + i.detail;
     } catch (err) { $("#apercu").textContent = err.message; }
   }, 600);
 });
@@ -335,22 +351,23 @@ depot.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f
 
 function envoyerFichier(fichier) {
   const prog = $("#depot-progression"), barre = prog.querySelector(".barre"), texte = prog.querySelector(".texte");
-  prog.hidden = false; barre.style.width = "0"; texte.textContent = `Copie de ${fichier.name}…`;
+  prog.hidden = false; barre.style.width = "0"; texte.textContent = T("ui.upload.copying", { file: fichier.name });
   const xhr = new XMLHttpRequest();
   const sortie = encodeURIComponent($("#opt-sortie").value.trim());
   xhr.open("PUT", `/api/fichiers?nom=${encodeURIComponent(fichier.name)}&sortie=${sortie}`);
-  xhr.upload.onprogress = (e) => { if (e.lengthComputable) { barre.style.width = (100 * e.loaded / e.total).toFixed(0) + "%"; texte.textContent = `Copie de ${fichier.name} : ${(100 * e.loaded / e.total).toFixed(0)} %`; } };
+  xhr.setRequestHeader("X-Langue", I18N.langue);
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) { barre.style.width = (100 * e.loaded / e.total).toFixed(0) + "%"; texte.textContent = T("ui.upload.progress", { file: fichier.name, pct: (100 * e.loaded / e.total).toFixed(0) }); } };
   xhr.onload = () => {
     try {
       const r = JSON.parse(xhr.responseText);
       if (xhr.status >= 400) throw new Error(r.erreur);
-      texte.textContent = (r.existait ? "Fichier déjà présent dans le dossier de sortie." : "Copié.") + " Cliquer Démarrer.";
+      texte.textContent = (r.existait ? T("ui.upload.existed") : T("ui.upload.copied")) + " " + T("ui.upload.click_start");
       setTimeout(() => { prog.hidden = true; }, 2500);
       $("#source").value = r.chemin;
       $("#btn-go").focus();
-    } catch (err) { texte.textContent = "Échec : " + err.message; }
+    } catch (err) { texte.textContent = T("ui.failed", { error: err.message }); }
   };
-  xhr.onerror = () => { texte.textContent = "Échec de l'envoi."; };
+  xhr.onerror = () => { texte.textContent = T("ui.upload.failed"); };
   xhr.send(fichier);
 }
 
@@ -366,7 +383,7 @@ function fermerDossier() {
   if (analyseId) api("POST", `/api/dossier/${analyseId}/annuler`, {}).catch(() => {});
   analyseId = null;
   $("#dossier").hidden = true; $("#dossier-actions").hidden = true; $("#btn-go").hidden = false;
-  $("#opt-pause-texte").textContent = "Pause avant la traduction : voir l'estimation du coût, puis choisir le traducteur";
+  $("#opt-pause-texte").textContent = T("ui.pause_option");
 }
 $("#btn-fermer-dossier").addEventListener("click", fermerDossier);
 
@@ -378,7 +395,7 @@ async function ouvrirDossier(chemin) {
   $("#dossier-racine").textContent = chemin;
   $("#dossier-arbre").innerHTML = ""; $("#dossier-resume").textContent = ""; $("#dossier-lot-existant").hidden = true;
   $("#btn-lancer-lot").disabled = true;
-  $("#opt-pause-texte").textContent = "Tout transcrire d'abord, puis afficher le coût total de toutes les traductions avant de les lancer";
+  $("#opt-pause-texte").textContent = T("ui.pause_option_batch");
   const sel = $("#dossier-langue-globale");
   sel.innerHTML = $("#opt-langue").innerHTML;       // tout de suite : la liste ne reste pas vide pendant l'analyse
   sel.value = $("#opt-langue").value;
@@ -408,13 +425,12 @@ function majChargement(e) {
   barre.classList.toggle("indefini", e.etat === "parcours");
   if (e.etat === "parcours") {
     barre.querySelector(".barre").style.width = "";
-    barre.querySelector(".texte").textContent = `Recherche des vidéos : ${e.vus} trouvée${e.vus > 1 ? "s" : ""}…`;
+    barre.querySelector(".texte").textContent = T("ui.folder.searching", { n: e.vus });
   } else if (e.etat === "langues") {
     barre.querySelector(".barre").style.width = (100 * e.faites / Math.max(1, e.nb)).toFixed(0) + "%";
-    barre.querySelector(".texte").textContent = `Lecture de la langue des pistes audio : ${e.faites}/${e.nb}`;
+    barre.querySelector(".texte").textContent = T("ui.folder.reading_tracks", { done: e.faites, n: e.nb });
   }
-  $("#btn-dossier-annuler").title = e.etat === "parcours" ? "Abandonner l'analyse de ce dossier"
-    : "Arrêter la lecture des langues : la liste reste, les vidéos non lues seront en détection automatique";
+  $("#btn-dossier-annuler").title = e.etat === "parcours" ? T("ui.folder.cancel_scan") : T("ui.folder.cancel_languages");
 }
 
 $("#btn-dossier-annuler").addEventListener("click", () => {
@@ -425,20 +441,20 @@ $("#btn-dossier-annuler").addEventListener("click", () => {
 function construireArbre(e) {
   inventaire = e;
   const nbDossiers = new Set(e.videos.map((v) => v.dossier)).size;
-  $("#dossier-racine").textContent = `${e.racine} : ${e.nb} vidéo${e.nb > 1 ? "s" : ""}` + (nbDossiers > 1 ? ` dans ${nbDossiers} dossiers` : "");
+  $("#dossier-racine").textContent = T("ui.folder.summary", { path: e.racine, n: e.nb }) + (nbDossiers > 1 ? " " + T("ui.folder.in_folders", { n: nbDossiers }) : "");
   const ex = $("#dossier-lot-existant");
   ex.hidden = !e.lot_existant;
   if (e.lot_existant) {
     ex.innerHTML = "";
-    ex.append(document.createTextNode(`Un fichier de lot existe déjà ici (${e.lot_existant}) : `));
-    ex.appendChild(bouton("Reprendre ce lot", () => chargerLot(e.lot_existant)));
-    ex.append(document.createTextNode(" ou lancer un nouveau lot ci-dessous (le fichier sera remplacé)."));
+    ex.append(document.createTextNode(T("ui.folder.batch_exists", { file: e.lot_existant }) + " "));
+    ex.appendChild(bouton(T("ui.folder.resume_this_batch"), () => chargerLot(e.lot_existant)));
+    ex.append(document.createTextNode(" " + T("ui.folder.or_new_batch")));
   }
   const arbre = $("#dossier-arbre");
   arbre.innerHTML = "";
-  if (!e.nb) arbre.textContent = "Aucune vidéo trouvée dans ce dossier.";
+  if (!e.nb) arbre.textContent = T("ui.folder.no_video");
   const cibles = lireLangues(), plie = nbDossiers > 3, langues = $("#opt-langue").innerHTML, defaut = $("#opt-langue").value || "";
-  $("#btn-dossier-plier").textContent = plie ? "Tout déplier" : "Tout replier";
+  $("#btn-dossier-plier").textContent = plie ? T("ui.folder.expand_all") : T("ui.folder.collapse_all");
   $("#btn-dossier-plier").hidden = nbDossiers < 2;
   let conteneur = null, courant = null;
   for (const v of e.videos) {
@@ -453,7 +469,7 @@ function construireArbre(e) {
     const nom = document.createElement("span"); nom.className = "nom"; nom.textContent = v.nom; nom.title = v.chemin;
     const taille = document.createElement("span"); taille.className = "taille"; taille.textContent = formaterOctets(v.taille);
     const badges = document.createElement("span");
-    for (const code of v.sous_titres) { const b = document.createElement("span"); b.className = "badge" + (cibles.includes(code) ? " ok" : ""); b.textContent = code; b.title = "sous-titres déjà présents"; badges.appendChild(b); }
+    for (const code of v.sous_titres) { const b = document.createElement("span"); b.className = "badge" + (cibles.includes(code) ? " ok" : ""); b.textContent = code; b.title = T("ui.folder.existing_subtitles"); badges.appendChild(b); }
     const langue = document.createElement("select"); langue.innerHTML = langues; langue.dataset.role = "langue"; langue.value = defaut;
     langue.addEventListener("change", () => { langue.dataset.touche = "1"; });
     ligne.append(c, nom, taille, badges, langue);
@@ -470,7 +486,7 @@ function ajouterGroupe(arbre, dossierNom, plie) {
   fleche.addEventListener("click", basculer);
   const c = document.createElement("input"); c.type = "checkbox";
   c.addEventListener("change", () => { for (const x of lignes.querySelectorAll("input[type=checkbox]")) x.checked = c.checked; majResumeDossier(); });
-  const nom = document.createElement("span"); nom.className = "nom-dossier"; nom.textContent = dossierNom || "(racine)"; nom.addEventListener("click", basculer);
+  const nom = document.createElement("span"); nom.className = "nom-dossier"; nom.textContent = dossierNom || T("ui.folder.root"); nom.addEventListener("click", basculer);
   const compte = document.createElement("span"); compte.className = "aide"; compte.dataset.role = "compte";
   entete.append(fleche, c, nom, compte);
   arbre.append(entete, lignes);
@@ -481,7 +497,7 @@ $("#btn-dossier-plier").addEventListener("click", () => {
   const groupes = [...$("#dossier-arbre").querySelectorAll(".lignes-dossier")];
   const deplier = groupes.some((g) => g.hidden);
   for (const g of groupes) { g.hidden = !deplier; g.previousElementSibling.querySelector(".plier").textContent = deplier ? "▾" : "▸"; }
-  $("#btn-dossier-plier").textContent = deplier ? "Tout replier" : "Tout déplier";
+  $("#btn-dossier-plier").textContent = deplier ? T("ui.folder.collapse_all") : T("ui.folder.expand_all");
 });
 
 /* La langue lue sur la piste audio arrive en arrière-plan ; un choix fait à la main n'est jamais écrasé. */
@@ -490,7 +506,7 @@ function appliquerLanguesPiste(langues) {
     const code = langues[l.dataset.chemin], s = l.querySelector("select[data-role=langue]");
     if (!code || s.dataset.touche || s.dataset.piste === code) continue;
     s.dataset.piste = code;
-    s.title = "étiquette de la piste audio : " + code;
+    s.title = T("ui.folder.track_tag", { code });
     if ([...s.options].some((o) => o.value === code)) s.value = code;
   }
 }
@@ -499,13 +515,13 @@ function lignesDossier() { return [...$("#dossier-arbre").querySelectorAll(".vid
 function majResumeDossier() {
   const cochees = lignesDossier().filter((l) => l.querySelector("input[type=checkbox]").checked);
   const octets = cochees.reduce((a, l) => a + Number(l.dataset.taille), 0);
-  $("#dossier-resume").textContent = `${cochees.length} vidéo${cochees.length > 1 ? "s" : ""} cochée${cochees.length > 1 ? "s" : ""} (${formaterOctets(octets)})`;
+  $("#dossier-resume").textContent = T("ui.folder.checked", { n: cochees.length, size: formaterOctets(octets) });
   $("#btn-lancer-lot").disabled = !cochees.length;
   for (const g of $("#dossier-arbre").querySelectorAll(".lignes-dossier")) {
     const cases = [...g.querySelectorAll("input[type=checkbox]")], n = cases.filter((c) => c.checked).length;
     const entete = g.previousElementSibling, c = entete.querySelector("input[type=checkbox]");
     c.checked = n === cases.length; c.indeterminate = n > 0 && n < cases.length;
-    entete.querySelector("[data-role=compte]").textContent = `${n}/${cases.length} cochée${n > 1 ? "s" : ""}`;
+    entete.querySelector("[data-role=compte]").textContent = T("ui.folder.group_checked", { n, total: cases.length });
   }
 }
 $("#btn-dossier-tout").addEventListener("click", () => { for (const c of $("#dossier-arbre").querySelectorAll("input[type=checkbox]")) c.checked = true; majResumeDossier(); });
@@ -536,7 +552,7 @@ $("#btn-lancer-lot").addEventListener("click", async () => {
                                                  arret: objectifPage(), remplacer: remplacerPage(), relecture: claudeDisponible() && $("#opt-relecture").checked });
     fermerDossier();
     suivreLot(lot.id);
-  } catch (err) { alert("Impossible de lancer le lot : " + err.message); }
+  } catch (err) { alert(T("ui.err.start_batch", { error: err.message })); }
   finally { $("#btn-lancer-lot").disabled = false; }
 });
 
@@ -549,12 +565,11 @@ $("#btn-reprendre-lot").addEventListener("click", async () => {
 async function verifierDernierLot() {
   const d = (await api("GET", "/api/lots/dernier").catch(() => ({}))).dernier;
   if (!d) return;
-  $("#dernier-lot-titre").textContent = { suspendu: "Un lot était en pause lors de la dernière session.",
-                                          attente_traduction: "Un lot attendait sa traduction lors de la dernière session." }[d.etat]
-    || "Un lot a été interrompu lors de la dernière session.";
-  const trad = moteur("traducteurs", d.traducteur)?.nom || d.traducteur;
-  $("#dernier-lot-detail").textContent = `${d.racine} · ${d.faites}/${d.total} vidéo${d.total > 1 ? "s" : ""} terminée${d.faites > 1 ? "s" : ""}`
-    + (trad ? ` · traducteur : ${trad}` : "") + (d.mis_a_jour ? ` · dernière activité : ${d.mis_a_jour}` : "");
+  $("#dernier-lot-titre").textContent = { suspendu: T("ui.last_batch.was_paused"), attente_traduction: T("ui.last_batch.was_waiting") }[d.etat]
+    || T("ui.last_batch.was_interrupted");
+  const trad = moteur("traducteurs", d.traducteur) ? nomMoteur(moteur("traducteurs", d.traducteur)) : d.traducteur;
+  $("#dernier-lot-detail").textContent = `${d.racine} · ` + T("ui.last_batch.done", { done: d.faites, n: d.total })
+    + (trad ? " · " + T("ui.last_batch.translator", { name: trad }) : "") + (d.mis_a_jour ? " · " + T("ui.last_batch.last_activity", { date: d.mis_a_jour }) : "");
   $("#btn-dernier-reprendre").onclick = () => chargerLot(d.fichier, true);
   $("#btn-dernier-regler").onclick = () => chargerLot(d.fichier);
   $("#btn-dernier-ignorer").onclick = async () => { await api("POST", "/api/lots/dernier/oublier", {}).catch(() => {}); $("#dernier-lot").hidden = true; };
@@ -567,7 +582,7 @@ async function chargerLot(fichier, demarrer = false) {
     if (demarrer) await api("POST", `/api/lots/${lot.id}/reprendre`, {});
     fermerDossier();
     suivreLot(lot.id);
-  } catch (err) { alert("Reprise impossible : " + err.message); }
+  } catch (err) { alert(T("ui.err.resume", { error: err.message })); }
 }
 
 // --- Étapes d'une vidéo ---------------------------------------------------------------------------------------
@@ -580,13 +595,13 @@ const veutDoublage = (l) => doublageActif() && ["doublage", "assemblage"].includ
 /* Une pastille par étape de la chaîne ; celles qui ne s'appliquent pas à ce lot ne sont pas montrées. */
 function etapesDeLaVideo(v, l) {
   const relecture = l.options?.relecture || v.relue;
-  return [["Transcription", v.transcrite], ...(relecture ? [["Relecture IA", v.relue], ["Validation des noms", v.relue && v.validee]] : []), ["Traduction", v.traduite],
-          ...(veutDoublage(l) || v.doublee || v.assemblee ? [["Doublage", v.doublee], ["MKV multipiste", v.assemblee]] : [])];
+  return [[T("ui.transcription"), v.transcrite], ...(relecture ? [[T("ui.dots.review"), v.relue], [T("ui.dots.validation"), v.relue && v.validee]] : []), [T("ui.translation"), v.traduite],
+          ...(veutDoublage(l) || v.doublee || v.assemblee ? [[T("ui.step.dubbing"), v.doublee], [T("ui.dots.mkv"), v.assemblee]] : [])];
 }
 
 function majPastilles(z, etapes) {
   if (z.childElementCount !== etapes.length) z.replaceChildren(...etapes.map(() => document.createElement("i")));
-  etapes.forEach(([nom, faite], i) => { z.children[i].className = faite ? "faite" : ""; z.children[i].title = `${nom} : ${faite ? "faite" : "à faire"}`; });
+  etapes.forEach(([nom, faite], i) => { z.children[i].className = faite ? "faite" : ""; z.children[i].title = T(faite ? "ui.dots.done" : "ui.dots.todo", { step: nom }); });
 }
 
 const aValider = (v) => v.relue && !v.validee;
@@ -610,7 +625,7 @@ function ligneValidation(p) {
   const coche = document.createElement("input"); coche.type = "checkbox"; coche.dataset.champ = "accepter";
   coche.checked = !!p.graphie && p.statut !== "incertain" && p.confiance !== "faible";
   const pourquoi = document.createElement("div"); pourquoi.className = "pourquoi";
-  pourquoi.textContent = `${p.statut === "incertain" ? "Incertain. " : ""}${p.raison || ""} (${p.occurrences || 0} fois, confiance ${p.confiance || "?"})`;
+  pourquoi.textContent = `${p.statut === "incertain" ? T("ui.names.uncertain") + " " : ""}${p.raison || ""} (${T("ui.names.stats", { n: p.occurrences || 0, confidence: p.confiance || "?" })})`;
   pourquoi.title = (p.exemples || []).join("\n");
   for (const contenu of [coche, p.transcrit, champ(p.graphie, "graphie"), champ(p.francais, "francais"), pourquoi]) {
     const td = document.createElement("td"); td.append(contenu); tr.appendChild(td);
@@ -625,9 +640,9 @@ async function ouvrirValidation(chemin) {
     const r = await api("GET", `/api/lots/${id}/relecture${chemin ? "?chemin=" + encodeURIComponent(chemin) : ""}`);
     if (!r.propositions.length && chemin) return continuerEpisode(chemin);
     validationVideo = chemin || "";
-    $("#validation-titre").textContent = `${r.propositions.length} nom${r.propositions.length > 1 ? "s" : ""} à vérifier${chemin ? " : " + nomFichier(chemin) : " dans le lot"}`;
+    $("#validation-titre").textContent = chemin ? T("ui.names.title_video", { n: r.propositions.length, file: nomFichier(chemin) }) : T("ui.names.title_batch", { n: r.propositions.length });
     $("#validation-lignes").replaceChildren(...r.propositions.map(ligneValidation));
-    $("#btn-validation-valider").textContent = chemin ? "Valider et passer à la suite" : "Valider les noms";
+    $("#btn-validation-valider").textContent = chemin ? T("ui.names.validate_continue") : T("ui.names.validate");
     $("#validation-message").textContent = "";
     $("#validation").hidden = false;
     $("#validation").scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -647,7 +662,7 @@ $("#btn-validation-valider").addEventListener("click", async () => {
     $("#validation").hidden = true;
     if (validationVideo) await continuerEpisode(validationVideo);
     else if (lotCourant) rafraichirLot();
-  } catch (err) { $("#validation-message").textContent = "Échec : " + err.message; }
+  } catch (err) { $("#validation-message").textContent = T("ui.failed", { error: err.message }); }
   finally { bouton_.disabled = false; }
 });
 $("#btn-lot-verifier").addEventListener("click", () => ouvrirValidation(""));
@@ -681,7 +696,7 @@ function suivreLot(id) {
 /* Temps restant calculé par le service (reste_s) : il survit au rechargement de la page. */
 function texteReste(s) {
   if (s === null || s === undefined) return "";
-  return s > 0 ? "reste environ " + formaterDuree(s) : "fin imminente";
+  return s > 0 ? T("ui.time.left_about", { time: formaterDuree(s) }) : T("ui.time.ending");
 }
 
 let lotLignes = new Map();                        // rang de la vidéo → sa ligne (son chemin change si le MKV la remplace)
@@ -693,7 +708,7 @@ function majListeLot(ul, l) {
       r = { li: document.createElement("li"), e: document.createElement("span"), n: document.createElement("span"), d: document.createElement("span"), tache: null, etat: null, accordeon: null, duree: "" };
       r.n.className = "src"; r.n.textContent = v.nom; r.d.className = "date";
       r.reessayer = document.createElement("button");
-      Object.assign(r.reessayer, { type: "button", className: "secondaire petit", textContent: "Réessayer", title: "Remettre cette vidéo dans la liste à traiter", hidden: true });
+      Object.assign(r.reessayer, { type: "button", className: "secondaire petit", textContent: T("ui.batch.retry"), title: T("ui.batch.retry_one_title"), hidden: true });
       r.reessayer.addEventListener("click", () => reessayerLot(v.chemin));
       r.pastilles = document.createElement("span"); r.pastilles.className = "pastilles";
       r.continuer = document.createElement("button");
@@ -706,13 +721,12 @@ function majListeLot(ul, l) {
     r.v = v;
     const bloquee = v.etat === "prepare" && aValider(v);
     r.e.className = "etat " + (bloquee ? "a_valider" : v.etat);
-    r.e.textContent = bloquee ? "à valider" : { a_faire: "à faire", en_cours: "en cours", prepare: "transcrite", traduit: "traduite", fait: "ok", erreur: "erreur", annule: "annulée" }[v.etat] || v.etat;
+    r.e.textContent = etiquette("ui.video_state.", bloquee ? "a_valider" : v.etat);
     majPastilles(r.pastilles, etapesDeLaVideo(v, l));
     const complete = v.traduite && (!veutDoublage(l) || (l.options.arret === "doublage" ? v.doublee : v.assemblee));
     r.continuer.hidden = complete || ["en_cours", "erreur", "annule"].includes(v.etat) || l.etat === "annule";
-    r.continuer.textContent = aValider(v) ? "Vérifier les noms" : "Continuer";
-    r.continuer.title = aValider(v) ? "Des noms attendent votre décision avant la suite de cet épisode"
-      : `Continuer cet épisode jusqu'${veutDoublage(l) ? "au doublage" : "aux sous-titres traduits"}, avant les autres`;
+    r.continuer.textContent = aValider(v) ? T("ui.check_names") : T("ui.batch.continue");
+    r.continuer.title = aValider(v) ? T("ui.batch.names_waiting") : T(veutDoublage(l) ? "ui.batch.continue_dub_title" : "ui.batch.continue_title");
     r.n.textContent = v.nom; r.n.title = v.erreur || v.chemin;
     r.reessayer.hidden = v.etat !== "erreur" || l.etat === "annule";
     if (v.tache !== r.tache) {
@@ -725,8 +739,8 @@ function majListeLot(ul, l) {
       r.accordeon?.recharger();
       if (v.tache && v.etat !== "en_cours") dureePasse(v.tache, v.etat).then((x) => { r.duree = x; });
     }
-    r.d.textContent = (v.langue_detectee ? nomLangue(v.langue_detectee) : v.langue ? nomLangue(v.langue) : "détection")
-      + (v.nb ? ` · ${v.nb} st` : "") + (r.duree ? ` · ${r.duree}` : "") + (v.erreur ? " · " + v.erreur : "");
+    r.d.textContent = (v.langue_detectee ? nomLangue(v.langue_detectee) : v.langue ? nomLangue(v.langue) : T("ui.batch.detection"))
+      + (v.nb ? " · " + T("ui.batch.nb_subtitles", { n: v.nb }) : "") + (r.duree ? ` · ${r.duree}` : "") + (v.erreur ? " · " + v.erreur : "");
   }
 }
 
@@ -743,15 +757,15 @@ function entrerParallele() {
   montrerRelance(null); $("#tache").hidden = false; $("#etapes").hidden = true; $("#btn-annuler").hidden = true; $("#pause").hidden = true; $("#resultat").hidden = true;
   $("#journal-texte").textContent = ""; $("#journal-minuteur").textContent = "";
   $("#tache-titre").title = "";
-  $("#tache-etat").textContent = "en cours"; $("#tache-etat").className = "etat en_cours";
+  $("#tache-etat").textContent = etiquette("ui.task_state.", "en_cours"); $("#tache-etat").className = "etat en_cours";
 }
 
 function quitterParallele() {
   modeParallele = false; suiviParallele.clear(); processTache = null;
   afficherProcess();
   $("#lot-actives").hidden = true;            // le journal commun reste lisible jusqu'à la prochaine tâche suivie
-  $("#tache-titre").textContent = "Dernières traductions";
-  $("#tache-etat").textContent = "terminées"; $("#tache-etat").className = "etat terminee";
+  $("#tache-titre").textContent = T("ui.parallel.last");
+  $("#tache-etat").textContent = T("ui.parallel.finished"); $("#tache-etat").className = "etat terminee";
 }
 
 async function lireSuiviParallele(id, s) {
@@ -759,15 +773,11 @@ async function lireSuiviParallele(id, s) {
   try { t = await api("GET", `/api/taches/${id}?depuis=${s.lu}`); } catch (err) { return null; }
   let lignes = t.journal;
   if (!s.repris) {                             // à la première lecture, seulement la traduction, pas la préparation
-    const i = lignes.findLastIndex((x) => x.includes("Reprise :"));
-    if (i >= 0) lignes = lignes.slice(i);
+    lignes = lignes.slice(t.journal_reprise || 0);
     s.repris = true;
   }
   s.lu = t.journal_total;
-  for (const x of lignes) {
-    const m = /(\d+)\/(\d+) sous-titres traduits/.exec(x);
-    if (m) { s.faits = +m[1]; s.total = +m[2]; }
-  }
+  if (t.progres) { s.faits = t.progres.faits; s.total = t.progres.total; }
   const code = codeVideo(s.nom);
   return { t, lignes: lignes.map((x) => x.replace(/^(\[\d\d:\d\d:\d\d\])/, `$1 ${code}`)) };
 }
@@ -779,7 +789,7 @@ function ligneActive(a) {
   const plein = document.createElement("span"); plein.style.width = (a.total ? 100 * a.faits / a.total : 0).toFixed(0) + "%"; mini.appendChild(plein);
   const compte = document.createElement("span"); compte.className = "temps compte"; compte.textContent = a.total ? `${a.faits}/${a.total}` : "…";
   const ecoule = document.createElement("span"); ecoule.className = "temps"; ecoule.textContent = `⏱ ${formaterDuree(a.ecoule)}`;
-  const reste = document.createElement("span"); reste.className = "temps"; reste.textContent = a.reste === null ? "" : `reste ${formaterDuree(a.reste)}`;
+  const reste = document.createElement("span"); reste.className = "temps"; reste.textContent = a.reste === null ? "" : T("ui.time.left", { time: formaterDuree(a.reste) });
   d.append(nom, mini, compte, ecoule, reste);
   return d;
 }
@@ -798,8 +808,8 @@ async function majParallele(l) {
     ecoule: r.t.passe_debut ? Math.max(0, Math.round(Date.now() / 1000 - r.t.passe_debut)) : 0 }));
   $("#lot-actives").hidden = !enCours.length;
   $("#lot-actives").replaceChildren(...enCours.map(ligneActive));
-  $("#tache-titre").textContent = `${enCours.length} vidéo${enCours.length > 1 ? "s" : ""} en traduction`;
-  if (enCours.length) processLot += " · " + enCours.map((a) => `${codeVideo(a.nom)} ⏱ ${formaterDuree(a.ecoule)}${a.reste === null ? "" : ", reste " + formaterDuree(a.reste)}`).join(" | ");
+  $("#tache-titre").textContent = T("ui.parallel.translating", { n: enCours.length });
+  if (enCours.length) processLot += " · " + enCours.map((a) => `${codeVideo(a.nom)} ⏱ ${formaterDuree(a.ecoule)}${a.reste === null ? "" : ", " + T("ui.time.left", { time: formaterDuree(a.reste) })}`).join(" | ");
   afficherProcess();
 
   const nouvelles = lus.flatMap(({ r }) => r?.lignes || []).sort((a, b) => a.slice(0, 10).localeCompare(b.slice(0, 10)));
@@ -811,8 +821,6 @@ async function majParallele(l) {
   }
 }
 
-const ETAPES_LOT = { source: "préparation", transcription: "transcription", decoupe: "découpe", relecture: "relecture IA", traduction: "traduction",
-  fin: "écriture des fichiers", doublage: "doublage", assemblage: "assemblage" };
 
 async function rafraichirLot() {
   if (!lotCourant) return;
@@ -821,32 +829,32 @@ async function rafraichirLot() {
   $("#lot-racine").textContent = l.racine;
   const etat = $("#lot-etat");
   // L'étape réelle de la vidéo en cours : sans pause, la phase 1 va jusqu'à la traduction.
-  etat.textContent = { en_cours: (ETAPES_LOT[l.etape] || { 1: "transcription", 2: "traduction", 3: "doublage" }[l.phase]) + " en cours", suspendu: "en pause", attente_traduction: "en attente de traduction", termine: "terminé", annule: "annulé" }[l.etat] || l.etat;
+  etat.textContent = l.etat === "en_cours" ? T("ui.batch_step." + (l.etape || { 1: "transcription", 2: "traduction", 3: "doublage" }[l.phase])) : etiquette("ui.batch_state.", l.etat);
   etat.className = "etat " + l.etat;
   $("#btn-lot-suspendre").hidden = l.etat !== "en_cours";
   $("#btn-lot-reprendre").hidden = l.etat !== "suspendu";
   $("#btn-lot-annuler").hidden = ["termine", "annule"].includes(l.etat);
   $("#btn-lot-reessayer").hidden = !l.comptes.erreur || l.etat === "annule";
-  $("#btn-lot-reessayer").textContent = l.comptes.erreur > 1 ? `Réessayer les ${l.comptes.erreur} en erreur` : "Réessayer celle en erreur";
+  $("#btn-lot-reessayer").textContent = T("ui.batch.retry_failed", { n: l.comptes.erreur });
   const faits = l.comptes.fait + (l.phase === 1 ? l.comptes.prepare : 0) + (l.phase < 3 ? l.comptes.traduit : 0) + l.comptes.erreur + l.comptes.annule;
   const barre = $("#lot-progression");
   barre.querySelector(".barre").style.width = (100 * faits / Math.max(1, l.total)).toFixed(0) + "%";
-  barre.querySelector(".texte").textContent = `${faits}/${l.total} vidéo${l.total > 1 ? "s" : ""} (${l.comptes.fait} terminée${l.comptes.fait > 1 ? "s" : ""}, ${l.comptes.prepare} transcrite${l.comptes.prepare > 1 ? "s" : ""}, ${l.comptes.erreur} en erreur)`;
+  barre.querySelector(".texte").textContent = T("ui.batch.progress", { done: faits, n: l.total }) + " (" + [T("ui.batch.count_done", { n: l.comptes.fait }), T("ui.batch.count_transcribed", { n: l.comptes.prepare }), T("ui.batch.count_failed", { n: l.comptes.erreur })].join(", ") + ")";
   const reste = texteReste(l.reste_s);
-  const parVideo = l.etat === "en_cours" && l.duree_moyenne_s ? `≈ ${formaterDuree(l.duree_moyenne_s)} par vidéo` : "";
+  const parVideo = l.etat === "en_cours" && l.duree_moyenne_s ? T("ui.batch.per_video", { time: formaterDuree(l.duree_moyenne_s) }) : "";
   barre.querySelector(".texte").textContent += (reste ? ` · ${reste}` : "") + (parVideo ? ` · ${parVideo}` : "");
   // En pause, les vidéos déjà lancées vont jusqu'au bout : leur suivi reste affiché tant qu'il en reste une.
   lotParallele = l.simultanees > 1 && (l.etat === "en_cours" || (l.etat === "suspendu" && l.comptes.en_cours > 0));
-  const nbActives = `${l.comptes.en_cours} vidéo${l.comptes.en_cours > 1 ? "s" : ""}`;
-  const detailLot = !lotParallele ? "" : l.etat === "suspendu" ? ` · ${nbActives} en train de finir` : ` · ${nbActives} en traduction${parVideo ? " · " + parVideo : ""}`;
-  processLot = { en_cours: `Lot ${faits}/${l.total}${reste ? " (" + reste + ")" : ""}${detailLot}`, suspendu: `Lot en pause ${faits}/${l.total}${detailLot}`, attente_traduction: `Lot prêt à traduire ${faits}/${l.total}` }[l.etat] || null;
+  const nbActives = l.comptes.en_cours;
+  const detailLot = !lotParallele ? "" : l.etat === "suspendu" ? " · " + T("ui.batch.finishing", { n: nbActives }) : " · " + T("ui.parallel.translating", { n: nbActives }) + (parVideo ? " · " + parVideo : "");
+  processLot = { en_cours: T("ui.process.batch", { done: faits, n: l.total }) + (reste ? " (" + reste + ")" : "") + detailLot, suspendu: T("ui.process.batch_paused", { done: faits, n: l.total }) + detailLot,
+                 attente_traduction: T("ui.process.batch_ready", { done: faits, n: l.total }) }[l.etat] || null;
   if (!lotParallele) afficherProcess();          // sinon majParallele complète d'abord le texte, sans clignotement
   // Le réglage de ce lot, pas la case du formulaire (elle ne vaut que pour un nouveau travail).
   const infoPause = $("#lot-info-pause"), traducteurLot = moteur("traducteurs", l.options?.traducteur || config.traducteur_actif);
   infoPause.hidden = l.phase !== 1 || !["en_cours", "suspendu"].includes(l.etat) || traducteurLot?.type === "aucun";
-  infoPause.textContent = l.options?.pause === false ? "Ce lot traduit chaque vidéo à la suite, sans s'arrêter."
-    : `Ce lot s'arrêtera avant de traduire pour ${l.options?.relecture ? "vérifier les noms et " : ""}afficher le coût.`;
-  $("#lot-fichier").textContent = "Fichier de lot (pour reprendre après une coupure) : " + l.fichier;
+  infoPause.textContent = l.options?.pause === false ? T("ui.batch.no_pause") : T(l.options?.relecture ? "ui.batch.will_pause_names" : "ui.batch.will_pause");
+  $("#lot-fichier").textContent = T("ui.batch.file", { path: l.fichier });
   const ul = $("#lot-videos");
   majListeLot(ul, l);
   const courante = l.videos.find((v) => v.etat === "en_cours");
@@ -864,11 +872,11 @@ async function rafraichirLot() {
   if (document.activeElement !== $("#lot-objectif")) $("#lot-objectif").value = double ? "assemblage" : "traduction";
   $("#lot-zone-remplacer").hidden = !double;
   $("#lot-remplacer").checked = !!l.options?.remplacer;
-  $("#lot-note-objectif").textContent = double && l.doublage_s ? `≈ ${formaterDuree(l.doublage_s)} de carte graphique pour les vidéos encore à doubler` : "";
-  $("#btn-lot-traduire").textContent = double ? "Traduire et doubler tout" : "Traduire tout";
+  $("#lot-note-objectif").textContent = double && l.doublage_s ? T("ui.batch.gpu_time", { time: formaterDuree(l.doublage_s) }) : "";
+  $("#btn-lot-traduire").textContent = double ? T("ui.batch.translate_dub_all") : T("ui.batch.translate_all");
   const nbAValider = l.videos.filter(aValider).length;
   $("#lot-a-verifier").hidden = !nbAValider;
-  $("#lot-a-verifier-texte").textContent = `${nbAValider} vidéo${nbAValider > 1 ? "s ont" : " a"} des noms à vérifier.`;
+  $("#lot-a-verifier-texte").textContent = T("ui.batch.names_to_check", { n: nbAValider });
   if (l.etat === "attente_traduction") { if (lotPausePour !== l.id) afficherPauseLot(l); }
   else { $("#lot-pause").hidden = true; lotPausePour = null; }
   if (l.etat === "suspendu") { if (lotSuspenduPour !== l.id) afficherSuspendu(l); }
@@ -879,7 +887,7 @@ async function rafraichirLot() {
 async function afficherPauseLot(l) {
   lotPausePour = l.id;
   $("#lot-pause").hidden = false; $("#lot-message").textContent = "";
-  $("#lot-pause-resume").textContent = `${l.comptes.prepare} vidéo${l.comptes.prepare > 1 ? "s" : ""} prête${l.comptes.prepare > 1 ? "s" : ""} à traduire.`;
+  $("#lot-pause-resume").textContent = T("ui.batch.ready_to_translate", { n: l.comptes.prepare });
   remplirSelect($("#lot-traducteur"), config.traducteurs, l.options?.traducteur || config.traducteur_actif);
   remplirLangues($("#lot-langues"), l.options?.langues || config.langues_cibles || ["fr"]);
   const maj = async () => {
@@ -959,11 +967,11 @@ $("#btn-lot-reprendre").addEventListener("click", async () => {
   const change = traducteur !== (lotSuspendu?.options?.traducteur || config.traducteur_actif);
   if (change) corps.pause = pauseParDefaut(m);       // passer à une API payante redonne l'estimation avant de dépenser
   if (change && lotSuspendu?.phase === 2 && m?.type === "claude"
-      && !confirm(`Traduire la suite du lot avec ${m.nom} (${m.modele || "modèle par défaut"}) ? Le coût est facturé sur la clé API.`)) return;
+      && !confirm(T("ui.batch.confirm_paid", { name: nomMoteur(m), model: m.modele || T("ui.batch.default_model") }))) return;
   await enregistrerReglagesTraducteur().catch(() => {});
   actionLot("reprendre", corps);
 });
-$("#btn-lot-annuler").addEventListener("click", () => { if (confirm("Annuler le lot ? Les vidéos déjà faites gardent leurs sous-titres.")) actionLot("annuler"); });
+$("#btn-lot-annuler").addEventListener("click", () => { if (confirm(T("ui.batch.confirm_cancel"))) actionLot("annuler"); });
 $("#btn-lot-traduire").addEventListener("click", async () => {
   await sauvegardeClaudeLot;
   const traducteur = $("#lot-traducteur").value;
@@ -976,7 +984,7 @@ $("#btn-lot-sans-traduire").addEventListener("click", () => actionLot("traduire"
 let pausePour = null;          // id de la tâche dont le panneau de pause est construit
 
 // État du traitement en cours, affiché en permanence dans l'en-tête.
-const ETAPES_PROCESS = { source: "Source", transcription: "Transcription", decoupe: "Découpe", relecture: "Relecture", traduction: "Traduction", fin: "Fichiers", doublage: "Doublage", assemblage: "MKV" };
+const ETAPES_PROCESS = { source: "ui.step.source", transcription: "ui.transcription", decoupe: "ui.step.split", relecture: "ui.step.review", traduction: "ui.translation", fin: "ui.step.files", doublage: "ui.step.dubbing" };
 let processLot = null, processTache = null, lotParallele = false;
 function afficherProcess() {
   // Plusieurs vidéos à la fois : le détail d'une seule n'apprendrait rien, le lot résume.
@@ -994,7 +1002,7 @@ function montrerRelance(t) {
 
 async function relancer(id) {
   try { await suivre((await api("POST", `/api/taches/${id}/reessayer`)).id); majHistorique(); }
-  catch (err) { alert("Relance impossible : " + err.message); }
+  catch (err) { alert(T("ui.err.retry", { error: err.message })); }
 }
 
 function suivre(id) {
@@ -1014,7 +1022,7 @@ async function rafraichir() {
   if (modeParallele) return;
   $("#tache-titre").textContent = nomFichier(t.source); $("#tache-titre").title = t.source;
   const etat = $("#tache-etat");
-  etat.textContent = { en_attente: "en attente", en_cours: "en cours", en_pause: "en pause", terminee: "terminée", erreur: "erreur", annulee: "annulée" }[t.etat] || t.etat;
+  etat.textContent = etiquette("ui.task_state.", t.etat);
   etat.className = "etat " + t.etat;
   $("#btn-annuler").hidden = !["en_attente", "en_cours", "en_pause"].includes(t.etat);
   montrerRelance(t);
@@ -1040,15 +1048,16 @@ async function rafraichir() {
   $("#journal-minuteur").textContent = chrono ? "  " + chrono : "";
   const nomSource = nomFichier(t.source);
   const resteTache = texteReste(t.reste_s);
-  processTache = t.etat === "en_cours" ? `${ETAPES_PROCESS[t.etape] || "Préparation"} : ${nomSource} ${chrono}${resteTache ? " · " + resteTache : ""}`.trim()
-    : t.etat === "en_attente" ? `En attente : ${nomSource}` : t.etat === "en_pause" && !t.options?.lot ? `En pause avant traduction : ${nomSource}` : null;
+  const nomEtape = t.etape === "assemblage" ? "MKV" : T(ETAPES_PROCESS[t.etape] || "ui.process.preparing");
+  processTache = t.etat === "en_cours" ? `${T("ui.process.step", { step: nomEtape, file: nomSource })} ${chrono}${resteTache ? " · " + resteTache : ""}`.trim()
+    : t.etat === "en_attente" ? T("ui.process.waiting", { file: nomSource }) : t.etat === "en_pause" && !t.options?.lot ? T("ui.process.paused", { file: nomSource }) : null;
   afficherProcess();
   if (t.etat === "terminee" && t.resultat) afficherResultat(t.resultat);
   if (!["en_attente", "en_cours", "en_pause"].includes(t.etat)) {
     clearInterval(minuteur); minuteur = null;
     const fini = tacheCourante; tacheCourante = null;
     majHistorique(); majEtat();
-    if (fini && t.etat === "terminee") document.title = "Génération de sous-titres : terminé";
+    if (fini && t.etat === "terminee") document.title = T("ui.title_done");
   }
 }
 
@@ -1058,8 +1067,8 @@ function afficherPause(t) {
   pausePour = t.id;
   const z = $("#pause");
   z.hidden = false;
-  $("#btn-traduire").textContent = t.options?.jusqua === "assemblage" ? "Traduire et doubler" : "Traduire";
-  $("#pause-resume").textContent = t.prepare ? `${t.prepare.nb} sous-titres en ${nomLangue(t.prepare.langue)} prêts (${t.prepare.srt_origine}).` : "";
+  $("#btn-traduire").textContent = t.options?.jusqua === "assemblage" ? T("ui.translate_dub") : T("ui.translate");
+  $("#pause-resume").textContent = t.prepare ? T("ui.task.prepared", { n: t.prepare.nb, lang: nomLangue(t.prepare.langue), file: t.prepare.srt_origine }) : "";
   $("#pause-message").textContent = "";
   remplirSelect($("#pause-traducteur"), config.traducteurs, t.options?.traducteur || config.traducteur_actif);
   remplirLangues($("#pause-langues"), t.options?.langues || config.langues_cibles || ["fr"]);
@@ -1075,26 +1084,28 @@ function afficherPause(t) {
 let derniereEstimation = null;
 function afficherCouts(e) { derniereEstimation = e; afficherCoutsDans($("#pause-couts"), e, $("#pause-traducteur").value); }
 
+const dollars = (x) => nombre(x, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 function afficherCoutsDans(z, e, choisi) {
   z.innerHTML = "";
   if (!e || !e.langues) return;
-  if (!e.langues.length) { z.textContent = "Rien à traduire : la vidéo est déjà dans la ou les langues choisies."; return; }
+  if (!e.langues.length) { z.textContent = T("ui.cost.nothing"); return; }
   const tete = document.createElement("span");
-  tete.textContent = `${e.videos ? e.videos + " vidéos, " : ""}${e.nb} sous-titres → ${e.langues.map(nomLangue).join(", ")} : ${e.requetes} requêtes, ≈ ${e.jetons_entree.toLocaleString("fr-FR")} jetons d'entrée et ${e.jetons_sortie.toLocaleString("fr-FR")} de sortie.`;
+  tete.textContent = (e.videos ? T("ui.cost.videos", { n: e.videos }) + ", " : "") + T("ui.cost.summary", { n: e.nb, langs: e.langues.map(nomLangue).join(", "), requests: e.requetes, tokens_in: nombre(e.jetons_entree), tokens_out: nombre(e.jetons_sortie) });
   z.appendChild(tete);
   const retenu = e.traducteurs.find((tr) => tr.id === choisi);
   if (retenu && retenu.type !== "aucun") {
     const grand = document.createElement("div"); grand.className = "cout-principal";
-    grand.textContent = retenu.cout_usd === null || retenu.cout_usd === undefined ? "Prix inconnu"
-      : retenu.cout_usd === 0 ? `Gratuit${retenu.duree_s ? ", environ " + formaterDuree(retenu.duree_s) : ""}`
-      : `≈ ${retenu.cout_usd.toFixed(2).replace(".", ",")} $`;
+    grand.textContent = retenu.cout_usd === null || retenu.cout_usd === undefined ? T("ui.cost.unknown_cap")
+      : retenu.cout_usd === 0 ? T("ui.cost.free_cap") + (retenu.duree_s ? ", " + T("ui.cost.about", { time: formaterDuree(retenu.duree_s) }) : "")
+      : `≈ ${dollars(retenu.cout_usd)}`;
     z.prepend(grand);
   }
   for (const tr of e.traducteurs) {
     if (tr.type === "aucun") continue;
     const s = document.createElement("span");
     s.className = tr.id === choisi ? "choisi" : "";
-    const cout = tr.cout_usd === null || tr.cout_usd === undefined ? "prix inconnu" : tr.cout_usd === 0 ? "gratuit" : `≈ ${tr.cout_usd.toFixed(2)} $`;
+    const cout = tr.cout_usd === null || tr.cout_usd === undefined ? T("est.unknown_price") : tr.cout_usd === 0 ? T("est.free") : `≈ ${dollars(tr.cout_usd)}`;
     s.textContent = `${tr.nom}${tr.modele ? " (" + tr.modele + ")" : ""} : ${cout}${tr.duree_s ? ", ≈ " + formaterDuree(tr.duree_s) : ""}`;
     z.appendChild(s);
   }
@@ -1121,19 +1132,19 @@ function afficherResultat(r) {
   const titre = document.createElement("strong");
   const langues = fichiers.map((f) => nomLangue(f.langue)).join(", ");
   // En dessous de 5 s, tout a été repris du travail déjà fait (même seuil que temps.py). La durée s'arrête aux sous-titres : pas de sens après un doublage.
-  titre.textContent = r.mkv ? `Sous-titres et doublage créés : ${langues}` : r.duree_s < 5 ? `Sous-titres déjà prêts, rien à refaire : ${langues}`
-    : `Sous-titres créés : ${langues} (${formaterDuree(r.duree_s)} depuis le début du traitement)`;
+  titre.textContent = r.mkv ? T("ui.result.dubbed", { langs: langues }) : r.duree_s < 5 ? T("ui.result.already", { langs: langues })
+    : T("ui.result.created", { langs: langues, time: formaterDuree(r.duree_s) });
   z.appendChild(titre);
-  z.appendChild(bouton("Ouvrir le dossier", () => api("POST", "/api/ouvrir", { chemin: r.srt })));
-  z.appendChild(bouton(r.mkv ? "Ouvrir le MKV" : "Ouvrir la vidéo", () => api("POST", "/api/ouvrir", { chemin: r.mkv || r.video })));
+  z.appendChild(bouton(T("ui.result.open_folder"), () => api("POST", "/api/ouvrir", { chemin: r.srt })));
+  z.appendChild(bouton(r.mkv ? T("ui.result.open_mkv") : T("ui.result.open_video"), () => api("POST", "/api/ouvrir", { chemin: r.mkv || r.video })));
   if (r.mkv) {
     const ch = document.createElement("div");
-    ch.className = "chemin"; ch.textContent = `${r.remplace ? "Vidéo remplacée (original à la corbeille)" : "MKV multipiste"} → ${r.mkv}`;
+    ch.className = "chemin"; ch.textContent = `${r.remplace ? T("ui.result.replaced") : T("ui.dots.mkv")} → ${r.mkv}`;
     z.appendChild(ch);
   }
   for (const f of fichiers) {
     const ch = document.createElement("div");
-    ch.className = "chemin"; ch.textContent = `${nomLangue(f.langue)}${f.traduit ? "" : " (langue parlée)"} : ${f.nb} sous-titres → ${f.chemin}`;
+    ch.className = "chemin"; ch.textContent = T("ui.result.file", { lang: nomLangue(f.langue) + (f.traduit ? "" : " (" + T("ui.result.spoken") + ")"), n: f.nb, path: f.chemin });
     z.appendChild(ch);
   }
 }
@@ -1156,21 +1167,21 @@ function journalAccordeon(t, titre) {
   const texte = document.createElement("pre"); texte.className = "journal"; texte.hidden = true;
   let zone = null;                      // créée à la première ouverture (un lot peut compter des centaines de lignes)
   const charger = async () => {
-    try { texte.textContent = (await api("GET", `/api/taches/${t.id}`)).journal.join("\n") || "(journal vide)"; }
-    catch (err) { texte.textContent = "Journal illisible : " + err.message; }
+    try { texte.textContent = (await api("GET", `/api/taches/${t.id}`)).journal.join("\n") || T("ui.log.empty"); }
+    catch (err) { texte.textContent = T("ui.log.unreadable", { error: err.message }); }
   };
   const basculer = async () => {
     const ouvrir = !zone || zone.hidden;
     if (ouvrir && !zone) { texte.hidden = false; surveillerDefilement(texte); zone = texte.parentElement; }
     else zone.hidden = !ouvrir;
-    b.textContent = ouvrir ? "Journal ▾" : "Journal ▸";
+    b.textContent = T("ui.log.button") + (ouvrir ? " ▾" : " ▸");
     b.setAttribute("aria-expanded", String(ouvrir));
     if (!ouvrir) { histOuverts.delete(t.id); return; }
     histOuverts.add(t.id);
-    texte.textContent = "Chargement…";
+    texte.textContent = T("ui.log.loading");
     await charger();
   };
-  const b = bouton("Journal ▸", async () => basculer());
+  const b = bouton(T("ui.log.button") + " ▸", async () => basculer());
   b.setAttribute("aria-expanded", "false");
   titre.classList.add("cliquable");
   titre.onclick = basculer;
@@ -1182,26 +1193,12 @@ function journalAccordeon(t, titre) {
   };
 }
 
-/* Durée d'une passe, lue dans son journal : de la première à la dernière ligne, sans le temps passé en pause. */
-function dureeJournal(lignes) {
-  let total = 0, precedente = null, enPause = false;
-  for (const ligne of lignes) {
-    const m = /^\[(\d\d):(\d\d):(\d\d)\]/.exec(ligne);
-    if (!m) continue;
-    const s = 3600 * +m[1] + 60 * +m[2] + +m[3];
-    if (precedente !== null && !enPause) total += (s - precedente + 86400) % 86400;
-    precedente = s;
-    if (/\] En pause :/.test(ligne)) enPause = true;
-    else if (/\] Reprise :/.test(ligne)) enPause = false;
-  }
-  return total;
-}
-
+/* Durée d'une passe, hors pause : calculée par le serveur à partir du journal (duree_s). */
 const cacheDurees = new Map();
 async function dureePasse(id, etat) {
   const cle = `${id}:${etat}`;
   if (!cacheDurees.has(cle)) {
-    try { cacheDurees.set(cle, formaterDuree(dureeJournal((await api("GET", `/api/taches/${id}`)).journal))); }
+    try { const d = (await api("GET", `/api/taches/${id}?depuis=1000000000`)).duree_s; cacheDurees.set(cle, d === null || d === undefined ? "" : formaterDuree(d)); }
     catch (err) { return ""; }
   }
   return cacheDurees.get(cle);
@@ -1214,19 +1211,19 @@ async function majHistorique() {
   ul.innerHTML = "";
   const bouton_h = $("#btn-historique");
   bouton_h.hidden = liste.length <= 5;
-  bouton_h.textContent = historiqueComplet ? "Voir moins" : `Voir plus (${liste.length})`;
+  bouton_h.textContent = historiqueComplet ? T("ui.history.less") : T("ui.history.more", { n: liste.length });
   for (const t of historiqueComplet ? liste : liste.slice(0, 5)) {
     const li = document.createElement("li");
     const etat = document.createElement("span"); etat.className = "etat " + t.etat;
-    etat.textContent = { en_attente: "attente", en_cours: "en cours", en_pause: "pause", terminee: "ok", erreur: "erreur", annulee: "annulée" }[t.etat] || t.etat;
+    etat.textContent = etiquette("ui.history_state.", t.etat);
     const src = document.createElement("span"); src.className = "src"; src.textContent = nomFichier(t.source); src.title = t.erreur || t.source;
     const date = document.createElement("span"); date.className = "date"; date.textContent = formaterDate(t.fin || t.debut || t.creee);
-    if (!["en_cours", "en_attente"].includes(t.etat)) dureePasse(t.id, t.etat).then((x) => { if (x) { date.textContent += " · " + x; date.title = "durée de cette passe, hors pause"; } });
+    if (!["en_cours", "en_attente"].includes(t.etat) && t.duree_s !== null && t.duree_s !== undefined) { date.textContent += " · " + formaterDuree(t.duree_s); date.title = T("ui.history.duration_title"); }
     li.append(etat, src, date);
     const accordeon = journalAccordeon(t, src);
     li.appendChild(accordeon.bouton);
-    if (t.resultat?.srt) li.appendChild(bouton("Dossier", () => api("POST", "/api/ouvrir", { chemin: t.resultat.srt })));
-    if (t.etat === "erreur" && !t.options?.lot) li.appendChild(bouton("Relancer", () => relancer(t.id)));
+    if (t.resultat?.srt) li.appendChild(bouton(T("ui.folder.title"), () => api("POST", "/api/ouvrir", { chemin: t.resultat.srt })));
+    if (t.etat === "erreur" && !t.options?.lot) li.appendChild(bouton(T("ui.retry"), () => relancer(t.id)));
     ul.appendChild(li);
     chargements.push(accordeon.installer(li));
   }
@@ -1262,6 +1259,7 @@ function remplirReglages() {
 
 function ligneMoteur(genre, m, actif) {
   const el = document.getElementById(genre === "transcription" ? "tpl-transcription" : "tpl-traducteur").content.firstElementChild.cloneNode(true);
+  traduire(el);
   for (const champ of el.querySelectorAll("[data-champ]")) {
     const k = champ.dataset.champ;
     if (k === "actif") champ.checked = actif;
@@ -1272,7 +1270,7 @@ function ligneMoteur(genre, m, actif) {
   el.querySelector("[data-action=supprimer]").addEventListener("click", () => el.remove());
   el.querySelector("[data-action=tester]").addEventListener("click", async (ev) => {
     const retour = el.querySelector("[data-role=retour]");
-    retour.textContent = "Test en cours…"; ev.target.disabled = true;
+    retour.textContent = T("ui.eng.testing"); ev.target.disabled = true;
     try {
       const r = await api("POST", "/api/tester", { genre, moteur: lireMoteur(el) });
       retour.textContent = (r.ok ? "✓ " : "✗ ") + r.detail;
@@ -1314,8 +1312,8 @@ $("#btn-enregistrer-reglages").addEventListener("click", async () => {
       let actif = null;
       for (const el of blocs) {
         const m = lireMoteur(el);
-        if (!m.id) throw new Error("chaque moteur doit avoir un id");
-        if (liste.some((x) => x.id === m.id)) throw new Error(`id en double : ${m.id}`);
+        if (!m.id) throw new Error(T("ui.cfg.id_required"));
+        if (liste.some((x) => x.id === m.id)) throw new Error(T("ui.cfg.duplicate_id", { id: m.id }));
         if (el.querySelector("[data-champ=actif]").checked) actif = m.id;
         liste.push(m);
       }
@@ -1325,7 +1323,7 @@ $("#btn-enregistrer-reglages").addEventListener("click", async () => {
     [c.transcriptions, c.transcription_active] = lire("#liste-transcriptions");
     [c.traducteurs, c.traducteur_actif] = lire("#liste-traducteurs");
     config = await api("PUT", "/api/config", c);
-    msg.textContent = "Enregistré.";
+    msg.textContent = T("ui.cfg.saved");
     remplirSelect($("#opt-transcription"), config.transcriptions, config.transcription_active);
     remplirSelect($("#opt-traducteur"), config.traducteurs, config.traducteur_actif);
     $("#opt-sortie").value = config.sortie; $("#opt-langue").value = config.langue || "";
@@ -1333,7 +1331,7 @@ $("#btn-enregistrer-reglages").addEventListener("click", async () => {
     afficherReglagesTraducteur();
     majEtat();
     setTimeout(() => dlg.close(), 500);
-  } catch (err) { msg.textContent = "Erreur : " + err.message; }
+  } catch (err) { msg.textContent = T("log.error", { error: err.message }); }
 });
 
 // --- Nettoyage du dossier de travail -------------------------------------------------------------------------
@@ -1343,12 +1341,14 @@ function lireNettoyage() {
            journaux: $("#cfg-net-journaux").checked, journaux_age_h: Number($("#cfg-net-age").value) || 0 };
 }
 
-function formaterOctets(o) { return o >= 1e9 ? (o / 1e9).toFixed(2) + " Go" : o >= 1e6 ? (o / 1e6).toFixed(0) + " Mo" : (o / 1e3).toFixed(0) + " Ko"; }
+function formaterOctets(o) {
+  return o >= 1e9 ? T("ui.size.gb", { n: nombre(o / 1e9, { maximumFractionDigits: 2 }) }) : o >= 1e6 ? T("ui.size.mb", { n: nombre(Math.round(o / 1e6)) }) : T("ui.size.kb", { n: nombre(Math.round(o / 1e3)) });
+}
 
 function montrerBilan(categories) {
   for (const el of document.querySelectorAll("[data-bilan]")) {
     const b = categories[el.dataset.bilan];
-    el.textContent = b ? `(${b.fichiers} fichier${b.fichiers > 1 ? "s" : ""}, ${formaterOctets(b.octets)})` : "";
+    el.textContent = b ? `(${T("ui.cfg.files", { n: b.fichiers })}, ${formaterOctets(b.octets)})` : "";
   }
 }
 
@@ -1359,13 +1359,13 @@ async function afficherBilanNettoyage() {
 
 $("#btn-nettoyer").addEventListener("click", async (ev) => {
   const retour = $("#nettoyage-retour");
-  ev.target.disabled = true; retour.textContent = "Nettoyage…";
+  ev.target.disabled = true; retour.textContent = T("ui.cfg.cleaning");
   try {
     const r = await api("POST", "/api/nettoyage", { options: lireNettoyage(), sortie: $("#cfg-sortie").value.trim() });
     const total = Object.values(r.supprime).reduce((a, b) => ({ fichiers: a.fichiers + b.fichiers, octets: a.octets + b.octets }), { fichiers: 0, octets: 0 });
-    retour.textContent = total.fichiers ? `${total.fichiers} fichier(s) supprimé(s), ${formaterOctets(total.octets)} libérés.` : "Rien à supprimer.";
+    retour.textContent = total.fichiers ? T("ui.cfg.cleaned", { n: total.fichiers, size: formaterOctets(total.octets) }) : T("ui.cfg.nothing_to_clean");
     montrerBilan(r.categories);
-  } catch (err) { retour.textContent = "Échec : " + err.message; }
+  } catch (err) { retour.textContent = T("ui.failed", { error: err.message }); }
   finally { ev.target.disabled = false; }
 });
 
@@ -1384,18 +1384,24 @@ function formaterDuree(s) {
 function formaterDate(t) {
   if (!t) return "";
   const d = new Date(t * 1000);
-  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString(I18N.langue, { day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString(I18N.langue, { hour: "2-digit", minute: "2-digit" });
 }
 for (const id of ["opt-transcription", "opt-traducteur"]) $("#" + id).addEventListener("change", majEtat);
 $("#opt-traducteur").addEventListener("change", () => { afficherReglagesTraducteur(); majPauseParDefaut(); });
 setInterval(majEtat, 15000);
 /* Les commandes ne s'activent qu'une fois connu ce qui tourne déjà : le contenu ne change plus sous le curseur. */
-charger().then(() => {
+chargerTraductions().then(() => {
+  majBoutonTheme();
+  for (const s of ["#dossier-arbre", "#lot-videos", "#journal", "#historique"]) surveillerDefilement($(s));
+  remplirLanguesParlees();
+  remplirChoixLangue();
+  return charger();
+}).then(() => {
   document.body.classList.remove("chargement");
   const page = document.querySelector("main");
   page.inert = false; page.removeAttribute("aria-busy");
   $("#btn-reglages").disabled = false;
 }).catch((err) => {
   document.querySelector("#chargement .rond").hidden = true;
-  $("#chargement-texte").textContent = `Le service ne répond pas (${err.message}). Le relancer depuis le module de la page Nouvel onglet, puis recharger cette page.`;
+  $("#chargement-texte").textContent = T("ui.service_unreachable", { error: err.message });
 });

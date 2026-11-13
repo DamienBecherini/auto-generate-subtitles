@@ -90,7 +90,7 @@ def test_serveur_sans_mots_explique_l_exigence(tmp_path, audio):
 def test_sante_annoncee(tmp_path):
     url, _, httpd = serveur(tmp_path, {"etat": "pret"})
     try:
-        assert transcription.sante(url) == "pret"
+        assert transcription.sante(url) == "prêt"          # état annoncé, en clair dans la langue des messages
     finally:
         httpd.shutdown()
 

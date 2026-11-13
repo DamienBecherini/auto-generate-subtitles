@@ -8,6 +8,8 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from . import i18n
+
 FICHIER_DEFAUTS = Path(__file__).resolve().parent / "config.toml"
 
 
@@ -18,7 +20,6 @@ def dossier_utilisateur() -> Path:
 
 FICHIER_UTILISATEUR = dossier_utilisateur() / "config.json"
 REFERENCES = ("env:", "file:", "sops:")
-FORMES = "env:<NOM>, file:<chemin> ou sops:<fichier>#<NOM>"
 
 
 class ErreurConfig(Exception):
@@ -51,9 +52,14 @@ def enregistrer(cfg: dict, fichier: Path = FICHIER_UTILISATEUR):
     for m in cfg.get("transcriptions", []) + cfg.get("traducteurs", []):
         cle = str(m.get("cle", ""))
         if cle and not cle.startswith(REFERENCES):
-            raise ErreurConfig(f"clé de « {m.get('nom', m.get('id'))} » : donner une référence {FORMES}, jamais la valeur")
+            raise ErreurConfig(i18n.t("err.key_value_refused", name=m.get("nom", m.get("id")), forms=i18n.t("cfg.key_forms")))
     fichier.parent.mkdir(parents=True, exist_ok=True)
     fichier.write_text(json.dumps(cfg, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def nom_moteur(m: dict) -> str:
+    """Nom affiché d'un moteur : son champ `nom`, sinon un nom traduit d'après son id (moteurs fournis), sinon l'id."""
+    return m.get("nom") or i18n.etiquette("engine.", str(m.get("id", "")))
 
 
 def moteur(cfg: dict, liste: str, actif: str, ident: str | None = None) -> dict:
@@ -62,7 +68,7 @@ def moteur(cfg: dict, liste: str, actif: str, ident: str | None = None) -> dict:
     for m in cfg.get(liste, []):
         if m.get("id") == voulu:
             return m
-    raise ErreurConfig(f"« {voulu} » absent de {liste}")
+    raise ErreurConfig(i18n.t("err.not_in_list", id=voulu, list=liste))
 
 
 def resoudre_cle(reference: str) -> str:
@@ -77,17 +83,17 @@ def resoudre_cle(reference: str) -> str:
         try:
             return chemin.read_text(encoding="utf-8").strip()
         except (OSError, UnicodeDecodeError) as e:
-            raise ErreurConfig(f"fichier de clé illisible : {chemin} ({type(e).__name__})") from e
+            raise ErreurConfig(i18n.t("err.key_file_unreadable", path=chemin, error=type(e).__name__)) from e
     if reference.startswith("sops:"):
         fichier, _, nom = reference[5:].partition("#")
         if not nom:
-            raise ErreurConfig(f"référence sops sans nom de variable : {reference}")
+            raise ErreurConfig(i18n.t("err.sops_no_name", ref=reference))
         sops = shutil.which("sops")
         if not sops:
-            raise ErreurConfig("sops introuvable dans le PATH : l'installer, ou utiliser une référence env:<NOM> ou file:<chemin>")
+            raise ErreurConfig(i18n.t("err.sops_missing"))
         r = subprocess.run([sops, "-d", "--extract", f'["{nom}"]', fichier], capture_output=True, text=True,
                            encoding="utf-8", errors="replace")
         if r.returncode != 0:
-            raise ErreurConfig(f"sops n'a pas pu lire {nom} dans {fichier} : {r.stderr.strip()[-200:]}")
+            raise ErreurConfig(i18n.t("err.sops_failed", name=nom, file=fichier, detail=r.stderr.strip()[-200:]))
         return r.stdout.strip()
-    raise ErreurConfig(f"clé en clair refusée : utiliser {FORMES}")
+    raise ErreurConfig(i18n.t("err.plain_key", forms=i18n.t("cfg.key_forms")))

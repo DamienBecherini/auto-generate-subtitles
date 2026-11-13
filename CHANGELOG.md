@@ -14,4 +14,5 @@ First public version.
 - Optional voice dubbing (off by default) and a multi-track MKV next to the video, which can replace the original once checked.
 - Subtitle files edited by hand are no longer overwritten.
 - Local JSON API documented in the README; the batch status shows the running video's actual step (transcription, translation…).
+- English and French interface, task logs, error messages and command line; the page follows the browser language, a selector fixes it. Adding a language takes one file (`soustitres/locales/<code>.json`).
 - Health endpoint following the "local service" contract: busy state, activity, remaining time, idle shutdown.

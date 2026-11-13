@@ -3,7 +3,8 @@
   GET  /                         la page
   GET  /api/sante                contrat « service local » : {etat, contrat, service, version, occupe, activite, reste_travail_s, inactivite}
   GET  /api/etat                 moteurs actifs, état du serveur de transcription local et de l'IA locale, tâche en cours
-  GET  /api/config  PUT /api/config
+  GET  /api/config  PUT /api/config      (langue_interface : langue imposée à la page et au journal, vide = automatique)
+  GET  /api/langues              langues de l'interface disponibles et réglage     GET /locales/<code>.json   catalogue
   POST /api/taches  {source, transcription?, traducteur?, langue?, langues?, sortie?, destination?, refaire?, pause?}   GET /api/taches
   GET  /api/taches/<id>?depuis=N     POST /api/taches/<id>/annuler     POST /api/taches/<id>/reessayer (tâche en erreur)
   GET  /api/taches/<id>/estimation?langues=fr,en      coût estimé (tâche en pause) pour ces langues
@@ -42,7 +43,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .. import __version__, config, dossier, etapes, langue, nettoyage, source, traduction, transcription, transcription_locale
+from .. import __version__, config, dossier, etapes, i18n, langue, nettoyage, source, traduction, transcription, transcription_locale
 from .taches import Gestionnaire
 from .veille import Veille, est_activite
 
@@ -102,9 +103,9 @@ def etat_transcription_locale(cfg: dict) -> dict:
     return r
 
 
-_TITRES = {"fichier": "Choisir une vidéo", "lot": "Choisir un fichier de lot", "dossier_source": "Dossier des vidéos à sous-titrer"}
+_TITRES = {"fichier": "dialog.pick_video", "lot": "dialog.pick_batch", "dossier_source": "dialog.source_folder"}
 _VIDEOS = "*.mp4 *.mkv *.webm *.mov *.avi *.m4a *.mp3 *.opus *.ogg *.wav *.flac"
-_MOTIFS = {"fichier": (_VIDEOS, "Vidéos et audio"), "lot": ("*.lot.json", "Fichier de lot")}
+_MOTIFS = {"fichier": (_VIDEOS, "dialog.videos_audio"), "lot": ("*.lot.json", "dialog.batch_file")}
 _SCRIPT_MAC = ("on run argv\n"
                "if (count of argv) > 1 then return POSIX path of (choose {quoi} with prompt (item 1 of argv) "
                "default location ((POSIX file (item 2 of argv)) as alias))\n"
@@ -114,7 +115,9 @@ _SCRIPT_MAC = ("on run argv\n"
 
 def commande_dialogue(genre: str, depart: str = "", plateforme: str = sys.platform, trouver=shutil.which) -> list[str] | None:
     """Boîte de dialogue hors Windows : osascript sur macOS, zenity ou kdialog ailleurs ; None si aucun n'est installé."""
-    titre, motif = _TITRES.get(genre, "Dossier de sortie des sous-titres"), _MOTIFS.get(genre)
+    titre, motif = i18n.t(_TITRES.get(genre, "dialog.output_folder")), _MOTIFS.get(genre)
+    if motif:
+        motif = (motif[0], i18n.t(motif[1]))
     if plateforme == "darwin":
         script = _SCRIPT_MAC.format(quoi="file" if motif else "folder")
         return ["osascript", "-e", script, titre] + ([depart] if depart else [])
@@ -123,7 +126,7 @@ def commande_dialogue(genre: str, depart: str = "", plateforme: str = sys.platfo
         if depart:
             c.append(f"--filename={depart.rstrip('/')}/")
         if motif:
-            return c + [f"--file-filter={motif[1]} | {motif[0]}", "--file-filter=Tous les fichiers | *"]
+            return c + [f"--file-filter={motif[1]} | {motif[0]}", f"--file-filter={i18n.t('dialog.all_files')} | *"]
         return c + ["--directory"]
     if trouver("kdialog"):
         if motif:
@@ -135,7 +138,7 @@ def commande_dialogue(genre: str, depart: str = "", plateforme: str = sys.platfo
 def _dialogue_unix(genre: str, depart: str) -> str:
     commande = commande_dialogue(genre, depart)
     if commande is None:
-        raise ErreurRequete(501, "aucune boîte de dialogue disponible : installer zenity ou kdialog, ou saisir le chemin dans le champ")
+        raise ErreurRequete(501, i18n.t("err.no_dialog"))
     r = subprocess.run(commande, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
     chemin = r.stdout.strip() if r.returncode == 0 else ""     # code non nul : choix annulé
     return chemin.rstrip("/") or chemin
@@ -147,14 +150,16 @@ def dialogue(genre: str, depart: str = "") -> str:
         return _dialogue_unix(genre, depart)
     depart = depart.replace("'", "''")
     if genre in ("fichier", "lot"):
-        filtre = ("Fichier de lot|*.lot.json|Tous les fichiers|*.*" if genre == "lot" else
-                  "Vidéos et audio|*.mp4;*.mkv;*.webm;*.mov;*.avi;*.m4a;*.mp3;*.opus;*.ogg;*.wav;*.flac|Tous les fichiers|*.*")
+        tous = i18n.t("dialog.all_files")
+        filtre = (f"{i18n.t('dialog.batch_file')}|*.lot.json|{tous}|*.*" if genre == "lot" else
+                  f"{i18n.t('dialog.videos_audio')}|*.mp4;*.mkv;*.webm;*.mov;*.avi;*.m4a;*.mp3;*.opus;*.ogg;*.wav;*.flac|{tous}|*.*")
+        filtre = filtre.replace("'", "''")
         corps = ("$d = New-Object System.Windows.Forms.OpenFileDialog; "
                  f"$d.Filter = '{filtre}'; "
                  f"if ('{depart}') {{ $d.InitialDirectory = '{depart}' }}; "
                  "if ($d.ShowDialog($f) -eq 'OK') { $d.FileName }")
     else:
-        titre = "Dossier des vidéos à sous-titrer" if genre == "dossier_source" else "Dossier de sortie des sous-titres"
+        titre = i18n.t("dialog.source_folder" if genre == "dossier_source" else "dialog.output_folder").replace("'", "''")
         corps = (f"$d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = '{titre}'; "
                  f"if ('{depart}') {{ $d.SelectedPath = '{depart}' }}; "
                  "if ($d.ShowDialog($f) -eq 'OK') { $d.SelectedPath }")
@@ -177,23 +182,23 @@ def commande_ouvrir(p: Path, plateforme: str = sys.platform) -> list[str]:
 def ouvrir(chemin: str):
     p = Path(chemin)
     if not p.exists():
-        raise ErreurRequete(404, f"introuvable : {chemin}")
+        raise ErreurRequete(404, i18n.t("err.not_found_path", path=chemin))
     try:
         subprocess.Popen(commande_ouvrir(p))
     except OSError as e:
-        raise ErreurRequete(501, f"ouverture impossible sur ce système : {e}") from e
+        raise ErreurRequete(501, i18n.t("err.cannot_open", error=e)) from e
 
 
 def tester(genre: str, m: dict) -> dict:
     if genre == "transcription":
         if m.get("commande"):
             transcription_locale.ServeurLocal.pour(m).assurer(lambda _x: None)
-        return {"ok": True, "detail": f"répond : {transcription.sante(m['url'])}"}
+        return {"ok": True, "detail": i18n.t("test.responds", state=transcription.sante(m["url"]))}
     if genre == "traducteur":
         if m.get("type") == "aucun":
-            return {"ok": True, "detail": "rien à tester"}
-        return {"ok": True, "detail": "répond : " + traduction.tester(m)}
-    raise ErreurRequete(400, "genre inconnu")
+            return {"ok": True, "detail": i18n.t("test.nothing")}
+        return {"ok": True, "detail": i18n.t("test.responds", state=traduction.tester(m))}
+    raise ErreurRequete(400, i18n.t("err.unknown_kind"))
 
 
 class Requete(BaseHTTPRequestHandler):
@@ -202,6 +207,10 @@ class Requete(BaseHTTPRequestHandler):
 
     def parse_request(self):
         ok = super().parse_request()
+        if ok:
+            langue_page = self.headers.get("X-Langue")
+            i18n.pour_requete(langue_page)
+            i18n.annonce_page(langue_page)
         if ok and est_activite(self.command, self.path):
             veille.signaler()
         return ok
@@ -223,17 +232,30 @@ class Requete(BaseHTTPRequestHandler):
     def _corps_json(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
         if n > 5_000_000:
-            raise ErreurRequete(413, "corps trop grand")
+            raise ErreurRequete(413, i18n.t("err.body_too_large"))
         return json.loads(self.rfile.read(n) or b"{}")
 
     def _fichier(self, chemin: str):
         nom = "index.html" if chemin in ("", "/") else chemin.removeprefix("/static/")
         f = (STATIQUE / nom).resolve()
         if not f.is_file() or STATIQUE not in f.parents:
-            return self._json(404, {"erreur": "introuvable"})
+            return self._json(404, {"erreur": i18n.t("err.not_found")})
         corps = f.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", TYPES.get(f.suffix, "application/octet-stream"))
+        self.send_header("Content-Length", str(len(corps)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(corps)
+
+    def _catalogue(self, nom: str):
+        """Catalogue de traductions d'une langue (les mêmes fichiers que les messages du serveur)."""
+        code = nom.removesuffix(".json")
+        if code not in i18n.disponibles():
+            return self._json(404, {"erreur": i18n.t("err.not_found")})
+        corps = (i18n.DOSSIER / f"{code}.json").read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(corps)))
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
@@ -245,6 +267,11 @@ class Requete(BaseHTTPRequestHandler):
         try:
             if u.path == "/" or u.path.startswith("/static/"):
                 return self._fichier(u.path)
+            if u.path.startswith("/locales/"):
+                return self._catalogue(u.path.removeprefix("/locales/"))
+            if u.path == "/api/langues":
+                reglage = config.charger().get("langue_interface") or ""
+                return self._json(200, {"disponibles": i18n.disponibles(), "reglage": i18n.choisir(reglage) or ""})
             if u.path == "/api/sante":
                 return self._json(200, etat_sante())
             cfg = config.charger()
@@ -271,17 +298,17 @@ class Requete(BaseHTTPRequestHandler):
             m = re.fullmatch(r"/api/dossier/([0-9a-f]+)", u.path)
             if m:
                 if not analyse_courante or analyse_courante.id != m.group(1):
-                    return self._json(404, {"erreur": "analyse inconnue"})
+                    return self._json(404, {"erreur": i18n.t("err.unknown_analysis")})
                 return self._json(200, analyse_courante.vers_dict("videos" in parse_qs(u.query)))
             m = re.fullmatch(r"/api/lots/([0-9a-f]+)/relecture", u.path)
             if m:
                 r = gestionnaire.propositions_lot(m.group(1), parse_qs(u.query).get("chemin", [None])[0])
-                return self._json(200, r) if r is not None else self._json(404, {"erreur": "lot inconnu"})
+                return self._json(200, r) if r is not None else self._json(404, {"erreur": i18n.t("err.unknown_batch")})
             m = re.fullmatch(r"/api/lots/([0-9a-f]+)(/estimation)?", u.path)
             if m:
                 lot = gestionnaire.lot(m.group(1))
                 if lot is None:
-                    return self._json(404, {"erreur": "lot inconnu"})
+                    return self._json(404, {"erreur": i18n.t("err.unknown_batch")})
                 if m.group(2):
                     q = parse_qs(u.query)
                     return self._json(200, gestionnaire.estimer_lot(lot.id, q["langues"][0] if "langues" in q else None) or {})
@@ -291,15 +318,15 @@ class Requete(BaseHTTPRequestHandler):
                 q = parse_qs(u.query)
                 e = gestionnaire.estimer(m.group(1), q["langues"][0] if "langues" in q else None)
                 if e is None:
-                    return self._json(404, {"erreur": "tâche inconnue ou pas encore préparée"})
+                    return self._json(404, {"erreur": i18n.t("err.task_not_prepared")})
                 return self._json(200, e)
             m = re.fullmatch(r"/api/taches/([0-9a-f]+)", u.path)
             if m:
                 d = gestionnaire.detail(m.group(1), int(parse_qs(u.query).get("depuis", ["0"])[0]))
                 if d is None:
-                    return self._json(404, {"erreur": "tâche inconnue"})
+                    return self._json(404, {"erreur": i18n.t("err.unknown_task")})
                 return self._json(200, d)
-            return self._json(404, {"erreur": "introuvable"})
+            return self._json(404, {"erreur": i18n.t("err.not_found")})
         except ErreurRequete as e:
             return self._json(e.code, {"erreur": str(e)})
 
@@ -310,9 +337,9 @@ class Requete(BaseHTTPRequestHandler):
                 d = self._corps_json()
                 src = (d.get("source") or "").strip().strip('"')
                 if not src:
-                    raise ErreurRequete(400, "source vide")
+                    raise ErreurRequete(400, i18n.t("err.empty_source"))
                 if not source.est_url(src) and Path(src).is_dir():
-                    return self._json(409, {"erreur": "c'est un dossier : utiliser le lot", "dossier": True})
+                    return self._json(409, {"erreur": i18n.t("err.is_folder"), "dossier": True})
                 options = {"source": src, "transcription": d.get("transcription") or "", "traducteur": d.get("traducteur") or "",
                            "langue": d.get("langue"), "sortie": (d.get("sortie") or "").strip(), "refaire": bool(d.get("refaire"))}
                 if d.get("langues") is not None:
@@ -330,13 +357,13 @@ class Requete(BaseHTTPRequestHandler):
                 d = self._corps_json()
                 t = gestionnaire.reprendre(m.group(1), d.get("traducteur"), d.get("langues"))
                 if t is None:
-                    raise ErreurRequete(409, "cette tâche n'est pas en pause")
+                    raise ErreurRequete(409, i18n.t("err.task_not_paused"))
                 return self._json(200, t.resume())
             if u.path == "/api/dossier":
                 d = self._corps_json()
                 chemin = Path((d.get("chemin") or "").strip().strip('"'))
                 if not chemin.is_dir():
-                    raise ErreurRequete(400, f"dossier introuvable : {chemin}")
+                    raise ErreurRequete(400, i18n.t("err.folder_not_found", path=chemin))
                 global analyse_courante
                 if analyse_courante:
                     analyse_courante.annuler()
@@ -352,12 +379,12 @@ class Requete(BaseHTTPRequestHandler):
                 d = self._corps_json()
                 videos = [v for v in d.get("videos") or [] if v.get("chemin")]
                 if not videos:
-                    raise ErreurRequete(400, "aucune vidéo sélectionnée")
+                    raise ErreurRequete(400, i18n.t("err.no_video_selected"))
                 options = {k: d.get(k) for k in ("transcription", "traducteur", "langues", "destination", "sortie", "pause", "refaire", "arret", "relecture", "remplacer") if d.get(k) is not None}
                 if "langues" in options:
                     options["langues"] = langue.normaliser_codes(options["langues"])
                 if options.get("arret") not in (None, *etapes.ARRETS):
-                    raise ErreurRequete(400, "étape d'arrêt inconnue")
+                    raise ErreurRequete(400, i18n.t("err.unknown_stop_step"))
                 if options.get("arret") == "validation" or options.get("relecture"):
                     options["pause"] = True    # les noms proposés se vérifient avant la traduction, quel que soit le réglage de pause
                 return self._json(201, gestionnaire.creer_lot(str(d.get("racine") or Path(videos[0]["chemin"]).parent), videos, options).resume())
@@ -374,7 +401,7 @@ class Requete(BaseHTTPRequestHandler):
             if m:
                 r = gestionnaire.valider_noms(m.group(1), self._corps_json().get("decisions") or [])
                 if r is None:
-                    raise ErreurRequete(404, "lot inconnu")
+                    raise ErreurRequete(404, i18n.t("err.unknown_batch"))
                 return self._json(200, {**r, "lot": gestionnaire.lot(m.group(1)).resume()})
             m = re.fullmatch(r"/api/lots/([0-9a-f]+)/(suspendre|reprendre|annuler|traduire|reessayer|continuer|objectif)", u.path)
             if m:
@@ -382,7 +409,7 @@ class Requete(BaseHTTPRequestHandler):
                 if action == "traduire":
                     d = self._corps_json()
                     if d.get("arret") not in (None, *etapes.ARRETS):
-                        raise ErreurRequete(400, "étape d'arrêt inconnue")
+                        raise ErreurRequete(400, i18n.t("err.unknown_stop_step"))
                     ok = gestionnaire.lot_traduire(ident, d.get("traducteur"), d.get("langues"), d.get("arret"))
                 elif action == "objectif":
                     d = self._corps_json()
@@ -396,7 +423,7 @@ class Requete(BaseHTTPRequestHandler):
                 else:
                     ok = getattr(gestionnaire, "lot_" + action)(ident)
                 if not ok:
-                    raise ErreurRequete(409, f"action « {action} » impossible dans l'état actuel du lot")
+                    raise ErreurRequete(409, i18n.t("err.batch_action", action=action))
                 return self._json(200, gestionnaire.lot(ident).resume())
             if u.path == "/api/nettoyage":
                 d = self._corps_json()
@@ -404,13 +431,13 @@ class Requete(BaseHTTPRequestHandler):
                 opts = {**nettoyage.options(cfg), **{k: v for k, v in (d.get("options") or {}).items() if k in nettoyage.DEFAUTS}}
                 racine = Path(d.get("sortie") or cfg["sortie"]) / ".travail"
                 if gestionnaire.en_cours():
-                    raise ErreurRequete(409, "une tâche est en cours : nettoyer après")
+                    raise ErreurRequete(409, i18n.t("err.task_running_cleanup"))
                 return self._json(200, {"racine": str(racine), "supprime": nettoyage.nettoyer_tout(racine, opts),
                                         "categories": nettoyage.bilan(racine)})
             m = re.fullmatch(r"/api/taches/([0-9a-f]+)/reessayer", u.path)
             if m:
                 t = gestionnaire.reessayer(m.group(1))
-                return self._json(200, {"id": t.id}) if t else self._json(404, {"erreur": "tâche introuvable ou pas en erreur"})
+                return self._json(200, {"id": t.id}) if t else self._json(404, {"erreur": i18n.t("err.task_not_in_error")})
             m = re.fullmatch(r"/api/taches/([0-9a-f]+)/annuler", u.path)
             if m:
                 return self._json(200, {"ok": gestionnaire.annuler(m.group(1))})
@@ -443,11 +470,11 @@ class Requete(BaseHTTPRequestHandler):
                     return self._json(200, {"ok": False, "detail": str(e)})
                 return self._json(200, {"ok": True, "titre": i.get("title"), "duree": i.get("duration"), "video": str(i["video"]),
                                         "existe": i["video"].exists()})
-            return self._json(404, {"erreur": "introuvable"})
+            return self._json(404, {"erreur": i18n.t("err.not_found")})
         except ErreurRequete as e:
             return self._json(e.code, {"erreur": str(e)})
         except (ValueError, KeyError) as e:
-            return self._json(400, {"erreur": f"requête invalide : {e}"})
+            return self._json(400, {"erreur": i18n.t("err.invalid_request", error=e)})
 
     def do_PUT(self):
         u = urlparse(self.path)
@@ -455,11 +482,12 @@ class Requete(BaseHTTPRequestHandler):
             if u.path == "/api/config":
                 cfg = self._corps_json()
                 config.enregistrer(cfg)
+                i18n.definir(cfg.get("langue_interface"))
                 return self._json(200, config.charger())
             if u.path == "/api/fichiers":
                 nom = Path(unquote(parse_qs(u.query).get("nom", [""])[0])).name
                 if not nom:
-                    raise ErreurRequete(400, "nom manquant")
+                    raise ErreurRequete(400, i18n.t("err.missing_name"))
                 cfg = config.charger()
                 dossier = Path(parse_qs(u.query).get("sortie", [""])[0] or cfg["sortie"])
                 dossier.mkdir(parents=True, exist_ok=True)
@@ -478,22 +506,22 @@ class Requete(BaseHTTPRequestHandler):
                         restant -= len(bloc)
                 if restant:
                     cible.unlink(missing_ok=True)
-                    raise ErreurRequete(400, "transfert incomplet")
+                    raise ErreurRequete(400, i18n.t("err.incomplete_upload"))
                 return self._json(200, {"chemin": str(cible), "existait": False})
-            return self._json(404, {"erreur": "introuvable"})
+            return self._json(404, {"erreur": i18n.t("err.not_found")})
         except ErreurRequete as e:
             return self._json(e.code, {"erreur": str(e)})
         except config.ErreurConfig as e:
             return self._json(400, {"erreur": str(e)})
         except (ValueError, KeyError) as e:
-            return self._json(400, {"erreur": f"requête invalide : {e}"})
+            return self._json(400, {"erreur": i18n.t("err.invalid_request", error=e)})
 
 
 def _surveiller_inactivite(serveur):
     while True:
         time.sleep(1)
         if veille.expiree():
-            log.info("Aucune activité depuis %.0f min : arrêt du service.", veille.delai_s() / 60)
+            log.info(i18n.t("srv.idle_stop", min=f"{veille.delai_s() / 60:.0f}"))
             serveur.shutdown()
             return
 
@@ -508,12 +536,13 @@ def servir(port: int, inactivite_min: float | None = None):
     serveur.daemon_threads = True
     try:
         cfg = config.charger()
+        i18n.definir(cfg.get("langue_interface"))
         nb, octets = nettoyage.purger_journaux(Path(cfg["sortie"]) / ".travail", float(nettoyage.options(cfg)["journaux_age_h"]))
         if nb:
-            log.info("Journaux purgés : %d fichier(s), %.1f Mo", nb, octets / 1e6)
+            log.info(i18n.t("srv.logs_purged", n=nb, mb=f"{octets / 1e6:.1f}"))
     except (config.ErreurConfig, OSError, ValueError, KeyError) as e:
-        log.warning("Purge des journaux impossible : %s", e)
-    log.info("Sous-titres : http://127.0.0.1:%d/", port)
+        log.warning(i18n.t("srv.purge_failed", error=e))
+    log.info(i18n.t("srv.listening", url=f"http://127.0.0.1:{port}/"))
     threading.Thread(target=_surveiller_inactivite, args=(serveur,), daemon=True, name="veille").start()
     try:
         serveur.serve_forever()

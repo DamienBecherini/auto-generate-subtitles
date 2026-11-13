@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import assemblage, config, decoupe, doublage, etapes, formats, glossaire, langue, nettoyage, source, traduction, transcription, transcription_locale
+from . import assemblage, config, decoupe, doublage, etapes, formats, glossaire, i18n, langue, nettoyage, source, traduction, transcription, transcription_locale
 from .decoupe import Reglages, SousTitre
 
 ETAPES = ["source", "transcription", "decoupe", "relecture", "traduction", "fin", "doublage", "assemblage"]
@@ -42,6 +42,7 @@ class Demande:
     nettoyer: bool = True              # applique [nettoyage] au dossier de travail à la fin
     sur_duree: object = None           # rappel appelé avec la durée de l'audio avant de le transcrire (temps restant)
     glossaire: str | None = None       # fichier des noms validés (voir glossaire.py)
+    sur_progres: object = None         # rappel (faits, total) à chaque lot de sous-titres traduits
 
 
 @dataclass
@@ -110,8 +111,8 @@ def message_transcription(m: dict, duree_s: float) -> str:
     except (TypeError, ValueError):
         vitesse = 0
     if vitesse <= 0:
-        return f"Transcription en cours ({audio} d'audio, vitesse de « {m.get('nom')} » non renseignée)…"
-    return f"Transcription en cours : environ {texte_duree(duree_s / vitesse)} pour {audio} d'audio (« {m.get('nom')} », {vitesse:g} s d'audio par seconde)…"
+        return i18n.t("log.transcribing_unknown_speed", audio=audio, name=config.nom_moteur(m))
+    return i18n.t("log.transcribing", eta=texte_duree(duree_s / vitesse), audio=audio, name=config.nom_moteur(m), speed=f"{vitesse:g}")
 
 
 def fichier_traduction(travail: Path, cible: str) -> Path:
@@ -165,7 +166,7 @@ def preparer(d: Demande, journal=print, etape=lambda nom: None, annule=lambda: F
     else:
         video = Path(d.source).expanduser().resolve()
         if not video.is_file():
-            raise source.ErreurSource(f"fichier introuvable : {video}")
+            raise source.ErreurSource(i18n.t("err.file_not_found", path=video))
     base = source.slug(video.stem)
     travail = dossier_travail(sortie, video)
     travail.mkdir(parents=True, exist_ok=True)
@@ -177,25 +178,25 @@ def preparer(d: Demande, journal=print, etape=lambda nom: None, annule=lambda: F
         audio = None                                   # transcription conservée, audio nettoyé : rien à extraire
     elif audios:
         audio = audios[0]
-        journal(f"Audio déjà extrait : {audio.name}")
+        journal(i18n.t("log.audio_already", file=audio.name))
     else:
-        journal(f"Extraction de l'audio de {video.name}…")
+        journal(i18n.t("log.audio_extracting", file=video.name))
         audio = source.extraire_audio(video, travail / f"{base}.audio")
     if audio:
-        journal(f"Audio : {audio.name} ({audio.stat().st_size / 1e6:.1f} Mo, {source.duree(audio):.0f} s) ; travail dans {travail}")
+        journal(i18n.t("log.audio", file=audio.name, mb=f"{audio.stat().st_size / 1e6:.1f}", s=f"{source.duree(audio):.0f}", work=travail))
     verifier()
 
     # 2. Transcription
     etape("transcription")
     if fichier_tr.exists() and not d.refaire:
         tr = json.loads(fichier_tr.read_text(encoding="utf-8"))
-        journal(f"Transcription déjà faite ({len(tr['words'])} mots)")
+        journal(i18n.t("log.transcription_already", n=len(tr["words"])))
     else:
         serveur_local = None
         if m_tr.get("commande"):
             serveur_local = transcription_locale.ServeurLocal.pour(m_tr)
             serveur_local.assurer(journal)
-        journal(f"Transcription par « {m_tr['nom']} » ({m_tr['url']}) : {transcription.sante(m_tr['url'])}")
+        journal(i18n.t("log.transcription_by", name=config.nom_moteur(m_tr), url=m_tr["url"], state=transcription.sante(m_tr["url"])))
         duree_audio = source.duree(audio)
         if d.sur_duree:
             d.sur_duree(duree_audio)
@@ -207,12 +208,12 @@ def preparer(d: Demande, journal=print, etape=lambda nom: None, annule=lambda: F
         try:
             tr = transcription.transcrire(m_tr["url"], audio, langue_tr, delai_s=delai, cle=cle)
         except transcription.DelaiDepasse as e:
-            journal(f"{e} Nouvel essai.")      # réponse perdue en route (déjà vu) : un lot ne doit pas rester bloqué
+            journal(i18n.t("log.retry", error=e))      # réponse perdue en route (déjà vu) : un lot ne doit pas rester bloqué
             tr = transcription.transcrire(m_tr["url"], audio, langue_tr, delai_s=delai, cle=cle)
         fichier_tr.write_text(json.dumps(tr, ensure_ascii=False, indent=1), encoding="utf-8")
-        journal(f"Transcrit en {time.perf_counter() - t:.0f} s : {len(tr['words'])} mots, {len(tr['segments'])} morceaux")
+        journal(i18n.t("log.transcribed", s=round(time.perf_counter() - t), words=len(tr["words"]), segments=len(tr["segments"])))
     if not tr["words"]:
-        raise transcription.ErreurTranscription("aucune parole détectée : rien à sous-titrer")
+        raise transcription.ErreurTranscription(i18n.t("err.no_speech"))
     verifier()
 
     # 3. Découpe dans la langue d'origine
@@ -220,11 +221,11 @@ def preparer(d: Demande, journal=print, etape=lambda nom: None, annule=lambda: F
     code = langue_voulue or tr.get("language") or langue.detecter(tr.get("text", "")) or "xx"
     mots, corrections = glossaire.corriger_mots(tr["words"], glossaire.charger(d.glossaire))
     if corrections:
-        journal(f"Glossaire : {corrections} nom(s) corrigé(s)")
+        journal(i18n.t("log.glossary_fixed", n=corrections))
     st = decoupe.construire(decoupe.depuis_json(mots), reglages)
     srt_origine = travail / f"{base}.{code}.srt"
     srt_origine.write_text(formats.srt(st, reglages), encoding="utf-8")
-    journal(f"Langue {code} ({langue.nom(code)}) : {len(st)} sous-titres → {srt_origine.name}")
+    journal(i18n.t("log.source_subtitles", code=code, lang=i18n.nom_langue(code), n=len(st), file=srt_origine.name))
     return Prepare(video, travail, base, code, st, srt_origine, sortie, t_debut)
 
 
@@ -242,7 +243,7 @@ def poser_srt(source_srt: Path, cible: Path, empreintes: dict, refaire: bool = F
             empreintes[str(cible)] = nouvelle
             return
         if actuelle != empreintes.get(str(cible)):
-            journal(f"Sous-titres gardés, modifiés depuis leur création : {cible.name}")
+            journal(i18n.t("log.subtitles_kept", file=cible.name))
             return
     shutil.copyfile(source_srt, cible)
     empreintes[str(cible)] = nouvelle
@@ -258,7 +259,7 @@ def traduire_et_copier(d: Demande, p: Prepare, journal=print, etape=lambda nom: 
     # 4. Traductions, une par langue cible
     etape("traduction")
     if m_trad.get("type", "aucun") == "aucun" or not cibles:
-        journal("Pas de traduction (traducteur « aucun », ou la vidéo est déjà dans la ou les langues voulues).")
+        journal(i18n.t("log.no_translation"))
     else:
         textes = [s.texte for s in p.sous_titres]
         tradr = None
@@ -270,28 +271,28 @@ def traduire_et_copier(d: Demande, p: Prepare, journal=print, etape=lambda nom: 
                     traduits = json.loads(fichier_trad.read_text(encoding="utf-8"))
                     if len(traduits) != len(textes):
                         traduits = None
-                        journal(f"Traduction {cible} existante d'un autre découpage : refaite")
+                        journal(i18n.t("log.translation_other_split", lang=cible))
                     else:
-                        journal(f"Traduction {cible} déjà faite")
+                        journal(i18n.t("log.translation_already", lang=cible))
                 if traduits is None:
                     if tradr is None:
                         tradr = traduction.creer(m_trad, journal)
-                    journal(f"Traduction {p.code} → {cible} ({langue.nom(cible)}) par « {m_trad['nom']} » ({len(textes)} sous-titres)…")
+                    journal(i18n.t("log.translating", src=p.code, lang=cible, name=i18n.nom_langue(cible), translator=config.nom_moteur(m_trad), n=len(textes)))
                     t = time.perf_counter()
                     termes = glossaire.termes_pour(glossaire.charger(d.glossaire), textes, cible)
                     if termes:
-                        journal(f"Glossaire : {len(termes)} nom(s) transmis à la traduction")
+                        journal(i18n.t("log.glossary_terms", n=len(termes)))
                     traduits = traduction.traduire_textes(tradr, textes, int(cfg.get("traduction", {}).get("lot", 25)),
-                                                          journal, annule=annule, cible=cible, termes=termes)
+                                                          journal, annule=annule, cible=cible, termes=termes, progres=d.sur_progres)
                     fichier_trad.write_text(json.dumps(traduits, ensure_ascii=False, indent=1), encoding="utf-8")
-                    journal(f"Traduit en {time.perf_counter() - t:.0f} s")
+                    journal(i18n.t("log.translated", s=round(time.perf_counter() - t)))
                 final = decoupe.scinder_trop_longs([SousTitre(s.debut, s.fin, t) for s, t in zip(p.sous_titres, traduits)], reglages)
                 final = decoupe.ajuster_durees(final, reglages)
                 srt = p.travail / f"{p.base}.{cible}.srt"
                 srt.write_text(formats.srt(final, reglages), encoding="utf-8")
                 (p.travail / f"{p.base}.{cible}.vtt").write_text(formats.vtt(final, reglages), encoding="utf-8")
                 fichiers.append(Fichier(cible, srt, len(final), True))
-                journal(f"{len(final)} sous-titres {langue.nom(cible)} → {srt.name} (+ .vtt)")
+                journal(i18n.t("log.target_subtitles", n=len(final), lang=i18n.nom_langue(cible), file=srt.name))
         finally:
             if tradr is not None:
                 tradr.terminer()
@@ -305,7 +306,7 @@ def traduire_et_copier(d: Demande, p: Prepare, journal=print, etape=lambda nom: 
     if dest.get("sortie") and p.sortie.resolve() not in {x.resolve() for x in dossiers}:
         dossiers.append(p.sortie)
     if not dossiers:
-        journal("Aucune destination cochée : les sous-titres restent dans le dossier de travail.")
+        journal(i18n.t("log.no_destination"))
     toutes_copies = []
     fichier_empreintes = p.travail / FICHIER_EMPREINTES
     try:
@@ -324,7 +325,7 @@ def traduire_et_copier(d: Demande, p: Prepare, journal=print, etape=lambda nom: 
     if empreintes:
         fichier_empreintes.write_text(json.dumps(empreintes, ensure_ascii=False, indent=1), encoding="utf-8")
     for c in toutes_copies:
-        journal(f"Sous-titres : {c}")
+        journal(i18n.t("log.subtitles_file", path=c))
 
     # 6. Nettoyage du dossier de travail
     if d.nettoyer:
@@ -335,7 +336,7 @@ def traduire_et_copier(d: Demande, p: Prepare, journal=print, etape=lambda nom: 
 
     principal = next((f for f in fichiers if f.traduit), fichiers[0])
     duree = time.perf_counter() - p.debut
-    journal(("Sous-titres déjà prêts, rien à refaire." if duree < 5 else f"Sous-titres terminés en {duree:.0f} s.") + f" Vidéo : {p.video}")
+    journal((i18n.t("log.subtitles_ready") if duree < 5 else i18n.t("log.subtitles_done", s=round(duree))) + " " + i18n.t("log.video", path=p.video))
     return Resultat(p.video, principal.chemin, p.srt_origine, p.code, principal.nb, principal.traduit, toutes_copies, duree, fichiers)
 
 
@@ -343,17 +344,17 @@ def traduire_et_copier(d: Demande, p: Prepare, journal=print, etape=lambda nom: 
 def doubler_et_assembler(d: Demande, p: Prepare, r: Resultat, jusqua: str, journal=print, etape=lambda nom: None, annule=lambda: False, remplacer: bool = False) -> dict:
     """Après la traduction : piste doublée dans la première langue traduite, puis MKV multipiste, qui peut remplacer la vidéo. Renvoie les chemins produits."""
     if etapes.marque_integration(p.travail).is_file() and not d.refaire:
-        journal("Doublage déjà intégré à la vidéo.")
+        journal(i18n.t("log.dub_integrated"))
         return {}
     cible = next((f for f in r.fichiers if f.traduit), None)
     if cible is None:
-        journal("Pas de doublage : aucune traduction disponible.")
+        journal(i18n.t("log.dub_no_translation"))
         return {}
     avec_mkv = etapes.va_jusqua(jusqua, "assemblage")
     mkv = etapes.chemin_mkv(r.video)
     ajoutees = 1 + len(r.fichiers)
     if avec_mkv and mkv.exists() and not d.refaire:
-        journal(f"MKV déjà assemblé : {mkv.name}")
+        journal(i18n.t("log.mkv_already", file=mkv.name))
         return _integrer(p, r.video, mkv, ajoutees, journal) if remplacer else {"mkv": str(mkv)}
     if annule():
         raise Annulee()

@@ -14,7 +14,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import source
+from . import i18n, source
 
 EXTENSIONS_VIDEO = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".mpg", ".mpeg", ".ts", ".wmv", ".flv"}
 EXTENSIONS_SOUS_TITRES = {".srt", ".vtt"}
@@ -55,7 +55,7 @@ def inventaire(racine: Path, recursif: bool = True, avec_langue_piste: bool = Tr
     """Arborescence des vidéos : [{chemin, nom, dossier, taille, sous_titres: [codes], langue_piste}], triée par chemin."""
     racine = Path(racine)
     if not racine.is_dir():
-        raise source.ErreurSource(f"dossier introuvable : {racine}")
+        raise source.ErreurSource(i18n.t("err.folder_not_found", path=racine))
     videos = parcourir(racine, recursif)
     if avec_langue_piste:
         for v in videos:
@@ -174,12 +174,12 @@ def lire_lot(fichier: Path) -> dict:
     if fichier.is_dir():
         fichier = fichier / NOM_LOT
     if not fichier.is_file():
-        raise source.ErreurSource(f"fichier de lot introuvable : {fichier}")
+        raise source.ErreurSource(i18n.t("err.batch_file_not_found", path=fichier))
     try:
         lot = json.loads(fichier.read_text(encoding="utf-8"))
     except ValueError as e:
-        raise source.ErreurSource(f"fichier de lot illisible : {e}") from e
+        raise source.ErreurSource(i18n.t("err.batch_file_unreadable", error=e)) from e
     if not isinstance(lot.get("videos"), list):
-        raise source.ErreurSource("fichier de lot sans liste de vidéos")
+        raise source.ErreurSource(i18n.t("err.batch_file_no_videos"))
     lot["fichier"] = str(fichier).replace("\\", "/")
     return lot

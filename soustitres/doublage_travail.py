@@ -25,8 +25,9 @@ ECART_PHRASE_S, PHRASE_MAX_S = 0.8, 12
 REF_MIN_S, REF_MAX_S = 3, 10
 
 
-def dire(texte):
-    print("» " + texte, flush=True)
+def dire(cle, **params):
+    """Avancement pour le journal : une clé de traduction et ses paramètres (voir doublage.message_travail)."""
+    print("» " + json.dumps({"cle": cle, **params}, ensure_ascii=False), flush=True)
 
 
 def ffmpeg(*args):
@@ -119,7 +120,7 @@ def principal():
     if not (voix.exists() and fond.exists()):              # déjà séparé : une reprise ne refait pas ces minutes
         extrait = tmp / "extrait.wav"
         ffmpeg("-i", t["video"], "-vn", "-ac", 2, "-ar", 44100, extrait)
-        dire("Doublage : séparation de la voix et du fond sonore…")
+        dire("log.dub_separating")
         subprocess.run([sys.executable, "-m", "demucs", "--two-stems", "vocals", "-o", str(tmp / "demucs"), str(extrait)], check=True)
         torch.cuda.empty_cache()
     v, taux_v = sf.read(voix)
@@ -129,7 +130,7 @@ def principal():
     groupes = phrases(lire_srt(t["srt_cible"]))
     if not origine or not groupes:
         raise SystemExit("sous-titres vides")
-    dire(f"Doublage : {len(groupes)} phrases à générer")
+    dire("log.dub_sentences", n=len(groupes))
     model = OmniVoice.from_pretrained(t["modele"], device_map="cuda:0", dtype=torch.float16)
     piste = np.zeros(int(duree * TAUX) + TAUX)
     for i, (a, b, texte) in enumerate(groupes):
@@ -145,7 +146,7 @@ def principal():
         debut = int(a * TAUX)
         piste[debut:debut + len(audio)] += audio[:len(piste) - debut]
         if (i + 1) % 25 == 0 or i + 1 == len(groupes):
-            dire(f"Doublage : {i + 1}/{len(groupes)} phrases ({time.time() - debut_travail:.0f} s)")
+            dire("log.dub_progress", done=i + 1, n=len(groupes), s=round(time.time() - debut_travail))
 
     pv = tmp / "voix.wav"
     sf.write(pv, piste, TAUX)
@@ -154,7 +155,7 @@ def principal():
            "-map", "[m]", "-t", duree, "-c:a", "aac", "-b:a", "192k", partiel)
     os.replace(partiel, t["sortie"])
     shutil.rmtree(tmp, ignore_errors=True)
-    dire(f"Doublage terminé en {time.time() - debut_travail:.0f} s")
+    dire("log.dub_done", s=round(time.time() - debut_travail))
 
 
 if __name__ == "__main__":

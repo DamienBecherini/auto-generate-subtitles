@@ -7,6 +7,8 @@ jetons (entrée, sortie), table Anthropic du 06/10/2026.
 """
 import math
 
+from . import config, i18n
+
 DEFAUTS = {
     "jetons_entree_par_ligne": 36,
     "jetons_sortie_par_ligne": 23,
@@ -50,7 +52,7 @@ def estimer(cfg: dict, nb_lignes: int, langues: list[str], langue_source: str) -
          "jetons_entree": round(n * float(r["jetons_entree_par_ligne"])), "jetons_sortie": round(n * float(r["jetons_sortie_par_ligne"])),
          "traducteurs": []}
     for m in cfg.get("traducteurs", []):
-        t = {"id": m.get("id"), "nom": m.get("nom", m.get("id")), "type": m.get("type", "openai"), "modele": m.get("modele", "")}
+        t = {"id": m.get("id"), "nom": config.nom_moteur(m), "type": m.get("type", "openai"), "modele": m.get("modele", "")}
         if t["type"] == "claude":
             t["cout_usd"] = cout_usd(cfg, t["modele"], e["jetons_entree"], e["jetons_sortie"])
         elif t["type"] == "openai":
@@ -77,11 +79,11 @@ def pause_par_defaut(m: dict) -> bool:
 def texte(e: dict, cfg: dict | None = None) -> str:
     """Résumé lisible pour le journal."""
     if not e["langues"]:
-        return "Rien à traduire (la vidéo est déjà dans la ou les langues voulues)."
-    morceaux = [f"{e['nb']} sous-titres × {len(e['langues'])} langue(s) : {e['requetes']} requêtes, ≈ {e['jetons_entree']} jetons d'entrée, {e['jetons_sortie']} de sortie."]
+        return i18n.t("est.nothing")
+    morceaux = [i18n.t("est.summary", n=e["nb"], langs=len(e["langues"]), requests=e["requetes"], tokens_in=e["jetons_entree"], tokens_out=e["jetons_sortie"])]
     for t in e["traducteurs"]:
         if t["type"] == "claude":
-            morceaux.append(f"  {t['nom']} ({t['modele']}) : " + (f"≈ {t['cout_usd']:.2f} $" if t.get("cout_usd") is not None else "prix inconnu"))
+            morceaux.append("  " + i18n.t("est.line", name=f"{t['nom']} ({t['modele']})", detail=f"≈ {t['cout_usd']:.2f} $" if t.get("cout_usd") is not None else i18n.t("est.unknown_price")))
         elif t["type"] == "openai":
-            morceaux.append(f"  {t['nom']} : ≈ {t['duree_s'] // 60} min {t['duree_s'] % 60:02d} s" + (" (gratuit)" if t.get("cout_usd") == 0 else ""))
+            morceaux.append("  " + i18n.t("est.line", name=t["nom"], detail=f"≈ {t['duree_s'] // 60} min {t['duree_s'] % 60:02d} s") + (" (" + i18n.t("est.free") + ")" if t.get("cout_usd") == 0 else ""))
     return "\n".join(morceaux)

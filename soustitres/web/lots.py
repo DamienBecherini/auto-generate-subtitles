@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .. import dossier, etapes
+from .. import dossier, etapes, i18n
 from . import temps
 
 ETATS_VIDEO = ("a_faire", "en_cours", "prepare", "traduit", "fait", "erreur", "annule")
@@ -106,7 +106,7 @@ class Lot:
         voulu = VOULU[self.phase]
         total = len(self.videos)
         rang = max(1, total - sum(1 for v in self.videos if v["etat"] == voulu))
-        return f"lot {rang}/{total}" + {1: "", 2: " (traduction)", 3: " (doublage)"}[self.phase]
+        return i18n.t("activity.batch", rank=rang, total=total) + {1: "", 2: " (" + i18n.t("step.translation").lower() + ")", 3: " (" + i18n.t("step.dubbing").lower() + ")"}[self.phase]
 
     def doublage_a_faire_s(self) -> int:
         """Temps de carte graphique pour les vidéos encore à doubler ; 0 si ce lot ne veut que les sous-titres."""

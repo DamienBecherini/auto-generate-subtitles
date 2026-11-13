@@ -5,9 +5,10 @@ pause), 2 = traduction après une pause, 3 = doublage et assemblage. Son poids d
 de vidéo en passes 1 et 3, lignes × langues en passe 2. Le taux est le nombre de secondes de calcul par unité de poids.
 """
 import json
+import re
 import threading
 
-from .. import config, estimation
+from .. import config, estimation, i18n
 
 FICHIER = config.dossier_utilisateur() / "vitesses.json"
 DUREE_MIN_S = 5                # en dessous, la passe a repris des résultats déjà faits : elle ne dit rien de la vitesse
@@ -80,3 +81,28 @@ def _taux_annonce(passe: int, options: dict) -> float | None:
 
 def taux_connu(passe: int, options: dict) -> float | None:
     return lire(cle(passe, options)) or _taux_annonce(passe, options)
+
+
+_HEURE = re.compile(r"^\[(\d\d):(\d\d):(\d\d)\] ")
+
+
+def duree_journal(lignes: list[str]) -> int:
+    """Durée d'une tâche lue dans son journal : de la première à la dernière ligne datée, sans le temps passé en pause.
+    Les marques de pause et de reprise sont reconnues dans toutes les langues (un journal garde celle de son écriture)."""
+    pauses = tuple("] " + v for v in i18n.variantes("log.pause_prefix"))
+    reprises = tuple("] " + v for v in i18n.variantes("log.resume_prefix"))
+    total, precedente, en_pause = 0, None, False
+    for ligne in lignes:
+        m = _HEURE.match(ligne)
+        if not m:
+            continue
+        s = 3600 * int(m[1]) + 60 * int(m[2]) + int(m[3])
+        if precedente is not None and not en_pause:
+            total += (s - precedente) % 86400
+        precedente = s
+        corps = ligne[m.end() - 2:]
+        if corps.startswith(pauses):
+            en_pause = True
+        elif corps.startswith(reprises):
+            en_pause = False
+    return total

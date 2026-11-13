@@ -10,7 +10,7 @@ import subprocess
 from collections import deque
 from pathlib import Path
 
-from . import etapes
+from . import etapes, i18n
 
 PROGRAMME = Path(__file__).with_name("doublage_travail.py")
 PREFIXE = "» "                                  # lignes du programme destinées au journal
@@ -32,14 +32,25 @@ def chemin_pour(cfg: dict, p: str | Path) -> str:
     return f"/mnt/{m.group(1).lower()}/{m.group(2)}" if m and (cfg.get("doublage") or {}).get("wsl") else texte
 
 
+def message_travail(brut: str) -> str:
+    """Ligne du programme de doublage : {"cle": …, paramètres} traduit dans la langue active ; texte tel quel sinon."""
+    try:
+        d = json.loads(brut)
+    except ValueError:
+        return brut
+    if not isinstance(d, dict) or "cle" not in d:
+        return brut
+    return i18n.t(d.pop("cle"), **d)
+
+
 def doubler(cfg: dict, video: Path, travail: Path, srt_origine: Path, srt_cible: Path, cible: str, journal=print, annule=lambda: False, refaire: bool = False) -> Path:
     """Fabrique `doublage/<cible>.m4a` dans le dossier de travail (voix clonée mêlée au fond sonore d'origine) et renvoie son chemin."""
     sortie = etapes.fichier_doublage(travail, cible)
     if sortie.is_file() and not refaire:
-        journal(f"Doublage {cible} déjà fait : {sortie.name}")
+        journal(i18n.t("log.dub_already_done", lang=cible, file=sortie.name))
         return sortie
     if not disponible(cfg):
-        raise ErreurDoublage("doublage non configuré : table [doublage] (actif, commande, modele)")
+        raise ErreurDoublage(i18n.t("err.dub_not_configured"))
     sortie.parent.mkdir(parents=True, exist_ok=True)
     conf = cfg["doublage"]
     c = lambda p: chemin_pour(cfg, p)  # noqa: E731
@@ -49,7 +60,7 @@ def doubler(cfg: dict, video: Path, travail: Path, srt_origine: Path, srt_cible:
     try:
         p = subprocess.Popen([*conf["commande"], c(PROGRAMME)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
     except OSError as e:
-        raise ErreurDoublage(f"programme de doublage introuvable : {e}") from e
+        raise ErreurDoublage(i18n.t("err.dub_program_not_found", error=e)) from e
     p.stdin.write((json.dumps(travail_json, ensure_ascii=False) + "\n").encode("utf-8"))
     p.stdin.flush()
     fin, annulee = deque(maxlen=15), False
@@ -63,7 +74,7 @@ def doubler(cfg: dict, video: Path, travail: Path, srt_origine: Path, srt_cible:
         for brute in lignes:
             ligne = brute.decode("utf-8", "replace")
             if ligne.startswith(PREFIXE):
-                journal(ligne[len(PREFIXE):])
+                journal(message_travail(ligne[len(PREFIXE):]))
             elif ligne.strip():
                 fin.append(ligne)
         if annule() and not annulee:
@@ -72,7 +83,7 @@ def doubler(cfg: dict, video: Path, travail: Path, srt_origine: Path, srt_cible:
             p.terminate()
     code = p.wait()
     if annulee:
-        raise ErreurDoublage("annulée")
+        raise ErreurDoublage(i18n.t("err.cancelled"))
     if code or not sortie.is_file():
-        raise ErreurDoublage(f"le doublage a échoué (code {code}) : " + " | ".join(list(fin)[-4:])[-500:])
+        raise ErreurDoublage(i18n.t("err.dub_failed", code=code, detail=" | ".join(list(fin)[-4:])[-500:]))
     return sortie

@@ -8,6 +8,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from . import i18n
+
 _SANS_FENETRE = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 CODE_ECHEC_DEMARRAGE = 3                # uvicorn : l'écoute sur le port a échoué
 
@@ -37,7 +39,7 @@ def occupant_du_port(url: str) -> str:
             return ""
         nom = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True, errors="replace", timeout=20,
                              creationflags=_SANS_FENETRE).stdout.split(",")[0].strip().strip('"')
-        return f"{nom or 'programme inconnu'} (pid {pid})"
+        return f"{nom or i18n.t('state.unknown_program')} (pid {pid})"
     except (OSError, subprocess.SubprocessError):
         return ""
 
@@ -75,7 +77,7 @@ class ServeurLocal:
         if _repond(self.url):
             return False
         if not self.tourne_ici():
-            journal(f"Démarrage du serveur de transcription local ({self.url})…")
+            journal(i18n.t("log.local_server_starting", url=self.url))
             sortie = open(self.journal_fichier, "ab")
             self.processus = subprocess.Popen(self.commande, cwd=self.dossier, stdout=sortie, stderr=subprocess.STDOUT,
                                               creationflags=_SANS_FENETRE)
@@ -84,15 +86,15 @@ class ServeurLocal:
         debut = time.time()
         while time.time() - debut < attente_s:
             if _repond(self.url):
-                journal(f"Serveur de transcription local prêt ({time.time() - debut:.0f} s).")
+                journal(i18n.t("log.local_server_ready", s=round(time.time() - debut)))
                 return True
             if self.processus and self.processus.poll() is not None:
                 code = self.processus.returncode
                 occupant = occupant_du_port(self.url) if code == CODE_ECHEC_DEMARRAGE else ""
-                detail = f" ; port déjà utilisé par {occupant}" if occupant else ""
-                raise ErreurServeurLocal(f"le serveur local s'est arrêté (code {code}){detail} : voir {self.journal_fichier}")
+                detail = i18n.t("err.port_used_by", program=occupant) if occupant else ""
+                raise ErreurServeurLocal(i18n.t("err.local_server_stopped", code=code, detail=detail, log=self.journal_fichier))
             time.sleep(1)
-        raise ErreurServeurLocal("le serveur de transcription local n'a pas répondu à temps")
+        raise ErreurServeurLocal(i18n.t("err.local_server_timeout"))
 
     def arreter(self):
         if self.tourne_ici():

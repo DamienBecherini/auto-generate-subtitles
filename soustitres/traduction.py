@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.request
 
-from . import config, langue
+from . import config, i18n, langue
 
 SIMULTANEES_CLAUDE = 5
 SIMULTANEES_MAX = 20
@@ -104,22 +104,22 @@ class TraducteurOpenAI:
         if self._repond():
             return
         if not self.supervision:
-            raise ErreurTraduction(f"le serveur ne répond pas sur {self.url}")
+            raise ErreurTraduction(i18n.t("err.llm_no_response", url=self.url))
         try:
             etat = _json(self.supervision + "/api/ia")
         except (urllib.error.URLError, OSError, ValueError) as e:
-            raise ErreurTraduction(f"ni le serveur ({self.url}) ni la supervision ({self.supervision}) ne répondent : {e}") from e
+            raise ErreurTraduction(i18n.t("err.llm_and_supervision_down", url=self.url, supervision=self.supervision, error=e)) from e
         if etat.get("etat") in ("arrete", "erreur", "arret_securite"):
-            self.journal("IA locale arrêtée : démarrage par la supervision…")
+            self.journal(i18n.t("log.local_ai_starting"))
             _json(self.supervision + "/api/ia/demarrer", {}, delai=30)
             self.demarree_ici = True
         debut = time.time()
         while time.time() - debut < attente_s:
             time.sleep(3)
             if self._repond():
-                self.journal(f"IA locale prête ({time.time() - debut:.0f} s).")
+                self.journal(i18n.t("log.local_ai_ready", s=round(time.time() - debut)))
                 return
-        raise ErreurTraduction("l'IA locale n'a pas démarré à temps (voir le module IA locale de la page Nouvel onglet)")
+        raise ErreurTraduction(i18n.t("err.local_ai_timeout"))
 
     def completer(self, consigne: str, demande: str) -> str:
         corps = {"model": self.modele, "temperature": 0.2, "max_tokens": 4096, "stream": False,
@@ -129,7 +129,7 @@ class TraducteurOpenAI:
         except urllib.error.HTTPError as e:
             raise ErreurTraduction(f"{self.url} : {e.code} {e.read().decode(errors='replace')[:300]}") from e
         except (urllib.error.URLError, OSError) as e:
-            raise ErreurTraduction(f"{self.url} injoignable : {e}") from e
+            raise ErreurTraduction(i18n.t("err.url_unreachable", url=self.url, error=e)) from e
         texte = r["choices"][0]["message"]["content"] or ""
         return re.sub(r"<think>.*?</think>", "", texte, flags=re.S).strip()
 
@@ -137,9 +137,9 @@ class TraducteurOpenAI:
         if self.demarree_ici and self.arreter_apres and self.supervision:
             try:
                 _json(self.supervision + "/api/ia/arreter", {}, delai=60)
-                self.journal("IA locale arrêtée (elle avait été démarrée pour cette tâche).")
+                self.journal(i18n.t("log.local_ai_stopped"))
             except (urllib.error.URLError, OSError, ValueError) as e:
-                self.journal(f"IA locale : arrêt impossible ({e})")
+                self.journal(i18n.t("log.local_ai_stop_failed", error=e))
 
 
 class TraducteurClaude:
@@ -149,10 +149,10 @@ class TraducteurClaude:
         try:
             import anthropic
         except ImportError as e:
-            raise ErreurTraduction("SDK anthropic absent : .venv/Scripts/pip install anthropic") from e
+            raise ErreurTraduction(i18n.t("err.anthropic_sdk_missing")) from e
         cle = config.resoudre_cle(m.get("cle", "")) or os.environ.get("ANTHROPIC_API_KEY", "")
         if not cle:
-            raise ErreurTraduction("clé Anthropic introuvable (référence « cle » de la configuration)")
+            raise ErreurTraduction(i18n.t("err.anthropic_key_missing"))
         self.anthropic = anthropic
         # Plusieurs vidéos à la fois peuvent atteindre la limite de débit : le SDK attend et réessaie (`retry-after`).
         self.client = anthropic.Anthropic(api_key=cle, max_retries=8)
@@ -176,14 +176,14 @@ class TraducteurClaude:
                 output_config=sortie,
                 betas=["server-side-fallback-2026-07-01"], fallbacks="default")
         except a.RateLimitError as e:
-            raise ErreurTraduction(f"API Anthropic : limite de débit ({e.response.headers.get('retry-after', '?')} s)") from e
+            raise ErreurTraduction(i18n.t("err.anthropic_rate_limit", s=e.response.headers.get("retry-after", "?"))) from e
         except a.APIStatusError as e:
-            raise ErreurTraduction(f"API Anthropic {e.status_code} : {e.message}") from e
+            raise ErreurTraduction(i18n.t("err.anthropic_status", code=e.status_code, detail=e.message)) from e
         except a.APIConnectionError as e:
-            raise ErreurTraduction(f"API Anthropic injoignable : {e}") from e
+            raise ErreurTraduction(i18n.t("err.anthropic_unreachable", error=e)) from e
         if rep.stop_reason == "refusal":
             detail = getattr(rep, "stop_details", None)
-            raise ErreurTraduction(f"API Anthropic : requête refusée ({getattr(detail, 'category', '?')})")
+            raise ErreurTraduction(i18n.t("err.anthropic_refused", category=getattr(detail, "category", "?")))
         u = getattr(rep, "usage", None)
         if u:
             self.jetons_entree += getattr(u, "input_tokens", 0) or 0
@@ -194,7 +194,7 @@ class TraducteurClaude:
         if self.jetons_entree or self.jetons_sortie:
             from . import estimation
             cout = estimation.cout_usd(config.charger(), self.modele, self.jetons_entree, self.jetons_sortie)
-            self.journal(f"API Anthropic ({self.modele}) : {self.jetons_entree} jetons d'entrée, {self.jetons_sortie} de sortie"
+            self.journal(i18n.t("log.anthropic_usage", model=self.modele, tokens_in=self.jetons_entree, tokens_out=self.jetons_sortie)
                          + (f" ≈ {cout:.2f} $" if cout is not None else ""))
 
 
@@ -204,7 +204,7 @@ def creer(m: dict, journal=print):
         return TraducteurOpenAI(m, journal)
     if t == "claude":
         return TraducteurClaude(m, journal)
-    raise ErreurTraduction(f"type de traducteur inconnu : {t}")
+    raise ErreurTraduction(i18n.t("err.unknown_translator_type", type=t))
 
 
 def simultanees(m: dict) -> int:
@@ -228,7 +228,7 @@ def tester(m: dict) -> str:
 
 
 def traduire_textes(traducteur, textes: list[str], taille_lot: int = 25, journal=print, annule=lambda: False,
-                    cible: str = "fr", termes: list[str] | None = None) -> list[str]:
+                    cible: str = "fr", termes: list[str] | None = None, progres=None) -> list[str]:
     """Traduit dans l'ordre vers la langue `cible` ; une ligne que le modèle n'a pas rendue reste telle quelle (signalée)."""
     systeme = consigne(cible, termes)
     traducteur.preparer()
@@ -238,21 +238,23 @@ def traduire_textes(traducteur, textes: list[str], taille_lot: int = 25, journal
     lot = taille_lot
     while position < len(textes):
         if annule():
-            raise ErreurTraduction("annulée")
+            raise ErreurTraduction(i18n.t("err.cancelled"))
         morceau = textes[position:position + lot]
         obtenu = _traduire_lot(traducteur, morceau, contexte, systeme)
         manquants = [i for i in range(len(morceau)) if (i + 1) not in obtenu]
         if manquants and lot > 1:
             lot = max(1, lot // 2)
-            journal(f"  lot incomplet ({len(manquants)} ligne(s) manquante(s)) : lots de {lot}")
+            journal("  " + i18n.t("log.chunk_incomplete", n=len(manquants), size=lot))
             continue
         for i, t in enumerate(morceau):
             resultat[position + i] = obtenu.get(i + 1, t)
             if (i + 1) not in obtenu:
-                journal(f"  ligne {position + i + 1} non traduite, gardée telle quelle : {t[:60]}")
+                journal("  " + i18n.t("log.line_untranslated", line=position + i + 1, text=t[:60]))
         contexte = [f"{position + i + 1}. {resultat[position + i]}" for i in range(max(0, len(morceau) - 2), len(morceau))]
         position += len(morceau)
-        journal(f"  {position}/{len(textes)} sous-titres traduits")
+        journal("  " + i18n.t("log.translated_progress", done=position, total=len(textes)))
+        if progres:
+            progres(position, len(textes))
         lot = min(taille_lot, lot * 2) if lot < taille_lot else lot
     return resultat
 

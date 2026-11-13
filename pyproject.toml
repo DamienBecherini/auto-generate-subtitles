@@ -26,7 +26,7 @@ version = { attr = "soustitres.__version__" }
 include = ["soustitres*"]
 
 [tool.setuptools.package-data]
-soustitres = ["config.toml"]
+soustitres = ["config.toml", "locales/*.json"]
 "soustitres.web" = ["static/*"]
 
 [tool.pytest.ini_options]

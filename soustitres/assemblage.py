@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import dossier, etapes, langue, source
+from . import dossier, etapes, i18n, langue, source
 
 _CODES3: dict[str, str] = {}
 for _trois, _deux in dossier._ETIQUETTES.items():
@@ -26,14 +26,14 @@ def code3(code: str) -> str:
 
 
 def titre(code: str) -> str:
-    return langue.nom(code).capitalize()
+    return i18n.nom_langue(code)[:1].upper() + i18n.nom_langue(code)[1:]
 
 
 def sonde(chemin: Path) -> dict:
     r = subprocess.run([source.outil("ffprobe"), "-v", "error", "-show_entries", "stream=index,codec_type,codec_name:stream_tags=language,title:format=duration",
                         "-of", "json", str(chemin)], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode:
-        raise ErreurAssemblage(f"lecture impossible de {Path(chemin).name} : {r.stderr[:300]}")
+        raise ErreurAssemblage(i18n.t("err.probe_failed", file=Path(chemin).name, detail=r.stderr[:300]))
     return json.loads(r.stdout)
 
 
@@ -61,7 +61,7 @@ def commande(ffmpeg: str, video: Path, infos: dict, doublage: Path, cible: str, 
         if not tags.get("title"):
             cmd += [f"-metadata:s:a:{i}", f"title={titre(parlee)} (original)"]
         cmd += [f"-disposition:a:{i}", "default" if i == 0 else "0"]
-    cmd += [f"-metadata:s:a:{n_a}", f"language={code3(cible)}", f"-metadata:s:a:{n_a}", f"title={titre(cible)} (doublage IA)", f"-disposition:a:{n_a}", "0"]
+    cmd += [f"-metadata:s:a:{n_a}", f"language={code3(cible)}", f"-metadata:s:a:{n_a}", f"title={i18n.t('mkv.dub_track', lang=titre(cible))}", f"-disposition:a:{n_a}", "0"]
     for i, (code, _) in enumerate(sous_titres):
         cmd += [f"-metadata:s:s:{n_s + i}", f"language={code3(code)}", f"-metadata:s:s:{n_s + i}", f"title={titre(code)}", f"-disposition:s:{n_s + i}", "0"]
     return cmd + ["-f", "matroska", str(sortie)]
@@ -72,7 +72,7 @@ def verifier(mkv: Path, infos: dict, ajoutees: int):
     fini, attendu = sonde(mkv), len(infos["streams"]) + ajoutees
     ecart = abs(float(fini["format"]["duration"]) - float(infos["format"]["duration"]))
     if len(fini["streams"]) != attendu or ecart > ECART_MAX_S:
-        raise ErreurAssemblage(f"MKV incomplet : {len(fini['streams'])} pistes sur {attendu}, écart de durée {ecart:.1f} s")
+        raise ErreurAssemblage(i18n.t("err.mkv_incomplete", found=len(fini["streams"]), expected=attendu, gap=f"{ecart:.1f}"))
 
 
 def corbeille(fichier: Path) -> bool:
@@ -99,14 +99,14 @@ def remplacer_original(video: Path, mkv: Path, ajoutees: int, journal=print) -> 
     video, mkv = Path(video), Path(mkv)
     final = video.with_suffix(".mkv")
     if final != video and final.exists():
-        journal(f"Remplacement impossible : {final.name} existe déjà. L'original et le MKV sont gardés.")
+        journal(i18n.t("log.replace_exists", file=final.name))
         return mkv
     verifier(mkv, sonde(video), ajoutees)
     if not corbeille(video):
-        journal("Corbeille indisponible : l'original et le MKV sont gardés.")
+        journal(i18n.t("log.trash_unavailable"))
         return mkv
     mkv.replace(final)
-    journal(f"Vidéo d'origine remplacée par le MKV : {final.name} (original à la corbeille)")
+    journal(i18n.t("log.replaced", file=final.name))
     return final
 
 
@@ -114,7 +114,7 @@ def assembler(video: Path, doublage: Path, cible: str, parlee: str, sous_titres:
     video = Path(video)
     sortie = etapes.chemin_mkv(video)
     if sortie.exists() and not refaire:
-        journal(f"MKV déjà assemblé : {sortie.name}")
+        journal(i18n.t("log.mkv_already", file=sortie.name))
         return sortie
     partiel = sortie.with_name(sortie.name + ".part")
     infos = sonde(video)
@@ -126,5 +126,5 @@ def assembler(video: Path, doublage: Path, cible: str, parlee: str, sous_titres:
         partiel.replace(sortie)
     finally:
         partiel.unlink(missing_ok=True)
-    journal(f"MKV multipiste : {sortie} ({sortie.stat().st_size / 2**20:.0f} Mo)")
+    journal(i18n.t("log.mkv_done", path=sortie, mb=f"{sortie.stat().st_size / 2**20:.0f}"))
     return sortie

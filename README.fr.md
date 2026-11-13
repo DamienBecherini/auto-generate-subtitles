@@ -20,15 +20,15 @@
 
 Sous-titres d'une vidéo YouTube ou d'un fichier vidéo dans sa langue et dans les langues voulues. La transcription passe par un serveur compatible OpenAI que vous fournissez ; la traduction par une IA locale, l'API Claude, toute API compatible OpenAI, ou rien. Les fichiers `.srt` et `.vtt` sont calés sur la parole. Interface web locale ou ligne de commande.
 
-![Un dossier de vidéos sous-titré en lot : progression, étapes et journal en direct](docs/images/batch-running-dark.png)
+![Un dossier de vidéos sous-titré en lot : progression, étapes et journal en direct](docs/images/fr/batch-running-dark.png)
 
 ## Captures d'écran
 
 | Choisir les moteurs et les langues | Choisir les vidéos d'un dossier |
 |---|---|
-| [![Page d'accueil](docs/images/home-light.png)](docs/images/home-light.png) | [![Inventaire du dossier](docs/images/folder-dark.png)](docs/images/folder-dark.png) |
+| [![Page d'accueil](docs/images/fr/home-light.png)](docs/images/fr/home-light.png) | [![Inventaire du dossier](docs/images/fr/folder-dark.png)](docs/images/fr/folder-dark.png) |
 | **Lot terminé : un fichier par langue** | **Le résultat, ici en anglais** |
-| [![Lot terminé](docs/images/batch-done-dark.png)](docs/images/batch-done-dark.png) | [![Vidéo sous-titrée en anglais](docs/images/result-en.png)](docs/images/result-en.png) |
+| [![Lot terminé](docs/images/fr/batch-done-dark.png)](docs/images/fr/batch-done-dark.png) | [![Vidéo sous-titrée en anglais](docs/images/fr/result-en.png)](docs/images/fr/result-en.png) |
 
 Les vidéos de démonstration sont fabriquées sur place (synthèse vocale de Windows, `docs/demo/videos_demo.py`) : une
 narration en français, transcrite par [transcription-handy-like](https://github.com/DamienBecherini/transcription-handy-like/blob/main/README.fr.md)
@@ -106,7 +106,7 @@ La page :
   pour Claude) ou **Terminer sans traduire**. Le journal donne ensuite les jetons réellement consommés et leur coût.
 - Suivi de la tâche : étapes, journal en direct, **Annuler** (prend effet à la fin de l'étape en cours), puis
   boutons **Ouvrir le dossier** et **Ouvrir la vidéo**. Historique des 50 dernières tâches (`historique.json`, à côté de `config.json`) ; le journal complet de chaque tâche est écrit à sa fin dans `.travail/<nom>/journal-<date>-<id>.txt` et s'ouvre en accordéon dans sa ligne d'historique (bouton Journal), sans quitter le suivi de la tâche en cours.
-- **Réglages** : dossier de sortie, langue par défaut, commande yt-dlp, taille des lots de traduction, **nettoyage
+- **Réglages** : dossier de sortie, langue parlée par défaut, commande yt-dlp, taille des lots de traduction, **nettoyage
   du dossier de travail** (voir plus bas, avec le bouton **Nettoyer maintenant** et la taille occupée par catégorie),
   mise en forme des sous-titres, et les listes de **serveurs de transcription** et de **traducteurs** (ajouter,
   modifier, supprimer, **Tester**, choisir l'actif). Enregistrés dans `config.json` du dossier utilisateur (`%LOCALAPPDATA%\sous-titres` sous Windows, `$XDG_CONFIG_HOME/sous-titres` ou `~/.config/sous-titres` ailleurs), qui recouvre
@@ -183,6 +183,18 @@ pastilles, relues sur le disque : une étape faite n'est pas refaite, même apr�
   piste doublée et sous-titres de chaque langue. Une option le met à la place de la vidéo, sous le nom `<vidéo>.mkv`, une fois
   ses pistes et sa durée vérifiées ; l'original part à la corbeille, et sans corbeille disponible les deux fichiers sont gardés.
 
+## Langues
+
+La page, le journal des tâches, les messages d'erreur et la ligne de commande existent en français et en anglais.
+
+- **Page web** : elle suit la langue du navigateur. Le sélecteur en haut de la page l'impose ; le choix est enregistré (réglage `langue_interface`) et le journal des tâches le suit aussi.
+- **Ligne de commande** : `--lang`, sinon le réglage `langue_interface`, sinon la langue du système.
+- **API** : l'en-tête `X-Langue: fr` (ou `en`) donne les messages d'erreur dans cette langue.
+
+**Ajouter une langue** demande un fichier, pas de code : copier `soustitres/locales/en.json` sous `<code>.json` (par exemple `de.json`) et traduire les valeurs, en gardant les `{paramètres}` tels quels. Un texte qui dépend d'un nombre a une forme par catégorie de pluriel (`one`, `other`, plus `few` ou `many` pour les langues qui en ont besoin). Un texte absent retombe sur l'anglais, et la langue apparaît d'elle-même dans le sélecteur. Les noms de langues viennent du navigateur : rien à traduire pour eux. `pytest` vérifie que chaque fichier a les mêmes clés et les mêmes paramètres que `en.json`.
+
+Les noms des réglages, les options de la ligne de commande et les champs de l'API restent en français : ce sont des identifiants, pas du texte.
+
 ## Ligne de commande
 
 ```
@@ -193,7 +205,7 @@ pastilles, relues sur le disque : une étape faite n'est pas refaite, même apr�
 ```
 
 Options : `--sortie`, `--langue en` (langue parlée), `--langues fr,de` (langues cibles), `--transcription <id>`,
-`--traducteur <id>`, `--refaire`, `--sans-nettoyage`. Le traducteur Claude demande le SDK `anthropic` (`pip install ".[claude]"`).
+`--traducteur <id>`, `--refaire`, `--sans-nettoyage`, `--lang fr` (langue des messages). Le traducteur Claude demande le SDK `anthropic` (`pip install ".[claude]"`).
 
 Un dossier devient un lot, comme dans l'interface web : `sous-titres.lot.json` note l'avancement, et relancer la même
 commande après une coupure (Ctrl+C, panne) reprend le lot. Les vidéos faites sont sautées, les autres repartent de leur
@@ -209,7 +221,7 @@ problème de cadence (les temps viennent du modèle, pas d'une estimation).
 ## API
 
 L'interface web s'appuie sur une API JSON locale, sur `http://127.0.0.1:4420`, utilisable aussi par des scripts. Elle n'a
-pas d'authentification : elle n'écoute que sur la machine elle-même. La liste complète est en tête de `soustitres/web/serveur.py`.
+pas d'authentification : elle n'écoute que sur la machine elle-même. Les messages d'erreur suivent l'en-tête `X-Langue` (`fr`, `en`). La liste complète est en tête de `soustitres/web/serveur.py`.
 
 | Requête | Rôle |
 | --- | --- |

@@ -13,6 +13,7 @@ langue = ""                                # langue parlée ("" = détection aut
 langues_cibles = ["fr"]                    # langues de traduction : un <vidéo>.<code>.srt par langue (la langue parlée est toujours produite)
 transcription_active = "exemple"
 traducteur_actif = "aucun"
+langue_interface = ""                      # langue des menus et des messages (fr, en… : soustitres/locales/) ; "" = celle du navigateur ou du système
 
 [destination]                              # où sont posés les fichiers .srt (au nom de la vidéo + code de langue)
 a_cote = true                              # à côté de la vidéo : VLC et la plupart des lecteurs les chargent seuls
@@ -29,7 +30,7 @@ journaux_age_h = 48
 # API compatible OpenAI : POST /v1/audio/transcriptions, en verbose_json avec les mots horodatés (champ « words »).
 [[transcriptions]]
 id = "exemple"
-nom = "Serveur de transcription local"
+# nom = "Mon serveur"                    # nom affiché ; sans lui, un nom par défaut dans la langue de l'interface
 url = "http://127.0.0.1:8000"
 cle = ""
 # Facultatif :
@@ -41,7 +42,6 @@ cle = ""
 [[traducteurs]]
 id = "local"
 type = "openai"                           # API compatible OpenAI (llama.cpp, Ollama, OpenAI, Mistral, Groq…)
-nom = "Serveur local compatible OpenAI"
 url = "http://127.0.0.1:8080"
 modele = "nom-du-modele"
 cle = ""
@@ -52,7 +52,6 @@ cle = ""
 [[traducteurs]]
 id = "claude"
 type = "claude"                           # API Anthropic par le SDK officiel (pip install anthropic)
-nom = "Claude (API Anthropic)"
 modele = "claude-sonnet-5-5"              # bon compromis pour de la traduction ; claude-opus-5-5 pour plus de nuance
 effort = "low"                            # profondeur de réflexion (low, medium, high) : la traduction en demande peu
 # parallele = 5                           # vidéos d'un lot traduites en même temps (5 par défaut pour Claude, 1 pour une IA locale)
@@ -61,7 +60,6 @@ cle = "env:ANTHROPIC_API_KEY"
 [[traducteurs]]
 id = "aucun"
 type = "aucun"
-nom = "Pas de traduction (sous-titres dans la langue d'origine)"
 
 [youtube]
 # Commande yt-dlp (avec sa configuration habituelle) ; le dossier de sortie ci-dessus remplace celui de la config (-o).

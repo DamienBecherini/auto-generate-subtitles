@@ -11,6 +11,8 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+from . import i18n
+
 
 _CODE_LANGUE = re.compile(r"^[a-z]{2,3}(-[A-Za-z]{2,4})?$")
 
@@ -44,16 +46,15 @@ def transcrire(url_serveur: str, audio: Path, langue: str | None = None, delai_s
             r = json.load(rep)
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="replace")[:500]
-        raise ErreurTranscription(f"serveur {e.code} : {detail}") from e
+        raise ErreurTranscription(i18n.t("err.server_status", code=e.code, detail=detail)) from e
     except urllib.error.URLError as e:
         if isinstance(e.reason, TimeoutError):
-            raise DelaiDepasse(f"Pas de réponse du serveur après {delai_s} s.") from e
-        raise ErreurTranscription(f"serveur injoignable ({url_serveur}) : {e.reason}") from e
+            raise DelaiDepasse(i18n.t("err.server_timeout", s=delai_s)) from e
+        raise ErreurTranscription(i18n.t("err.server_unreachable", url=url_serveur, detail=e.reason)) from e
     except TimeoutError as e:
-        raise DelaiDepasse(f"Pas de réponse du serveur après {delai_s} s.") from e
+        raise DelaiDepasse(i18n.t("err.server_timeout", s=delai_s)) from e
     if "words" not in r:
-        raise ErreurTranscription("réponse sans « words » : ce serveur ne renvoie pas les mots horodatés "
-                                  "(verbose_json avec timestamp_granularities[]=word, voir les prérequis du README)")
+        raise ErreurTranscription(i18n.t("err.no_words"))
     if not _CODE_LANGUE.match(str(r.get("language") or "")):
         r["language"] = ""             # OpenAI renvoie un nom (« french ») : la langue est alors devinée d'après le texte
     return r
@@ -65,9 +66,9 @@ def sante(url_serveur: str, delai_s: int = 5) -> str:
         with urllib.request.urlopen(url_serveur.rstrip("/") + "/health", timeout=delai_s) as rep:
             d = json.load(rep)
     except urllib.error.HTTPError:
-        return "répond, sans route /health"
+        return i18n.t("state.responds_no_health")
     except ValueError:
         return "répond"
     except (urllib.error.URLError, OSError) as e:
-        raise ErreurTranscription(f"serveur de transcription injoignable ({url_serveur}) : {e}") from e
-    return d.get("etat", "répond") if isinstance(d, dict) else "répond"
+        raise ErreurTranscription(i18n.t("err.transcription_unreachable", url=url_serveur, detail=e)) from e
+    return i18n.etiquette("state.server.", d["etat"]) if isinstance(d, dict) and d.get("etat") else i18n.t("state.responds")

@@ -2,15 +2,16 @@
 import argparse
 import webbrowser
 
-from .. import config
+from .. import config, i18n
 from .serveur import servir
 
 
 def main():
     p = argparse.ArgumentParser(prog="python -m soustitres.web")
-    p.add_argument("--port", type=int, help="port d'écoute (défaut : [web] port de la configuration, 4420)")
-    p.add_argument("--ouvrir", action="store_true", help="ouvre la page dans le navigateur")
-    p.add_argument("--inactivite", type=float, help="minutes sans activité avant l'arrêt (défaut : [web] inactivite_min, 60 ; 0 = jamais)")
+    i18n.definir(config.charger().get("langue_interface"))
+    p.add_argument("--port", type=int, help=i18n.t("cli.port"))
+    p.add_argument("--ouvrir", action="store_true", help=i18n.t("cli.open"))
+    p.add_argument("--inactivite", type=float, help=i18n.t("cli.idle"))
     a = p.parse_args()
     cfg = config.charger()
     port = a.port or int(cfg.get("web", {}).get("port", 4420))

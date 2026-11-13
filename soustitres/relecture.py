@@ -11,7 +11,7 @@ import re
 import threading
 from pathlib import Path
 
-from . import glossaire, traduction
+from . import glossaire, i18n, traduction
 
 NOM_FICHIER = "sous-titres.relecture.json"
 FICHIER_VIDEO = "relecture.json"
@@ -119,14 +119,14 @@ def relire(m: dict, fichier_lot: str | Path, travail: Path, titre: str, textes: 
     entrees = glossaire.charger(glossaire.chemin(fichier_lot))
     connus = set(d["examines"]) | {p["transcrit"] for p in d["propositions"]} | {e["transcrit"] for e in entrees} | {e.get("graphie") for e in entrees} | {e.get("francais") for e in entrees}
     a_soumettre = [c for c in tous if c["nom"] not in connus]
-    journal(f"Relecture IA : {len(tous)} noms dans cette vidéo, {len(a_soumettre)} encore jamais examinés")
+    journal(i18n.t("log.review_names", n=len(tous), new=len(a_soumettre)))
     if a_soumettre:
         traducteur = creer(m, journal)
         nouvelles = []
         try:
             for i in range(0, len(a_soumettre), TAILLE_PAQUET):
                 if annule():
-                    raise traduction.ErreurTraduction("annulée")
+                    raise traduction.ErreurTraduction(i18n.t("err.cancelled"))
                 nouvelles += _soumettre(traducteur, titre, a_soumettre[i:i + TAILLE_PAQUET])
         finally:
             traducteur.terminer()
@@ -136,7 +136,7 @@ def relire(m: dict, fichier_lot: str | Path, travail: Path, titre: str, textes: 
             deja = {p["transcrit"] for p in d["propositions"]}
             d["propositions"] += [p for p in nouvelles if p["transcrit"] not in deja]
             _ecrire(f, d)
-        journal(f"Relecture IA : {len(nouvelles)} nom(s) à vérifier")
+        journal(i18n.t("log.review_to_check", n=len(nouvelles)))
     with _verrou:
         attente = noms_en_attente(fichier_lot)
     miens = sorted({c["nom"] for c in tous} & attente)

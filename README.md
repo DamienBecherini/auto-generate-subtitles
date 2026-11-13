@@ -20,7 +20,7 @@
 
 Subtitles for a YouTube video or a video file, in its own language and in the languages you want. You bring the transcription server; translation runs on a local LLM, the Claude API, any OpenAI-compatible API, or not at all. Output is `.srt` and `.vtt` files timed on the actual speech.
 
-![A folder of videos subtitled in a batch: progress, steps and live log](docs/images/batch-running-dark.png)
+![A folder of videos subtitled in a batch: progress, steps and live log](docs/images/en/batch-running-dark.png)
 
 ## What it does
 
@@ -34,13 +34,13 @@ Subtitles for a YouTube video or a video file, in its own language and in the la
 
 | Choose the engines and the languages | Pick the videos of a folder |
 |---|---|
-| [![Home page](docs/images/home-light.png)](docs/images/home-light.png) | [![Folder inventory](docs/images/folder-dark.png)](docs/images/folder-dark.png) |
-| **Batch done: one file per language** | **The result, here in English** |
-| [![Batch done](docs/images/batch-done-dark.png)](docs/images/batch-done-dark.png) | [![Video with English subtitles](docs/images/result-en.png)](docs/images/result-en.png) |
+| [![Home page](docs/images/en/home-light.png)](docs/images/en/home-light.png) | [![Folder inventory](docs/images/en/folder-dark.png)](docs/images/en/folder-dark.png) |
+| **Batch done: one file per language** | **The result, here in French** |
+| [![Batch done](docs/images/en/batch-done-dark.png)](docs/images/en/batch-done-dark.png) | [![Video with French subtitles](docs/images/en/result-fr.png)](docs/images/en/result-fr.png) |
 
-The demo videos are made on the spot (Windows speech synthesis, `docs/demo/videos_demo.py`): a French narration,
+The demo videos are made on the spot (Windows speech synthesis, `docs/demo/videos_demo.py`): an English narration,
 transcribed by [transcription-handy-like](https://github.com/DamienBecherini/transcription-handy-like) and translated
-into English and Spanish by a local LLM (Qwen3.6 with llama.cpp), at no cost.
+into French and Spanish by a local LLM (Qwen3.6 with llama.cpp), at no cost.
 
 ## Quick start
 
@@ -56,11 +56,11 @@ python -m venv .venv
 .venv/bin/python -m soustitres.web --ouvrir
 ```
 
-**3. Check the connection.** On the page, open **Réglages**, then click **Tester** next to the transcription server. If your server is on another machine or uses an API key, change its address and key there.
+**3. Check the connection.** On the page, open **Settings**, then click **Test** next to the transcription server. If your server is on another machine or uses an API key, change its address and key there.
 
 **4. Make subtitles.** Paste a YouTube address or a file path, then click **Démarrer**. The `.srt` file appears next to the video.
 
-To translate, add a translator in **Réglages**. For the Claude API, first run `.venv/bin/pip install ".[claude]"`.
+To translate, add a translator in **Settings**. For the Claude API, first run `.venv/bin/pip install ".[claude]"`.
 
 ## Transcription server requirements
 
@@ -78,11 +78,9 @@ Tested with [transcription-handy-like](https://github.com/DamienBecherini/transc
 .venv/bin/python -m soustitres --liste              # configured engines
 ```
 
-Command line options: `--sortie`, `--langue en` (spoken language), `--langues fr,de` (target languages), `--transcription <id>`, `--traducteur <id>`, `--refaire`, `--sans-nettoyage`.
+Command line options: `--sortie`, `--langue en` (spoken language), `--langues fr,de` (target languages), `--transcription <id>`, `--traducteur <id>`, `--refaire`, `--sans-nettoyage`, `--lang en` (language of the messages).
 
 A folder becomes a batch, the same as in the web page: `sous-titres.lot.json` records its progress, and running the same command after an interruption (Ctrl+C, power cut) resumes it. Finished videos are skipped and the others reuse their saved transcription. The command does not pause before translation. Batch options: `--jusqua traduction|doublage|assemblage` (last step, translation by default), `--nouveau-lot` (ignore the existing batch file and list the folder again), `--sans-sous-dossiers`. You can also pass a `.lot.json` file. The exit code is 0 when every video is done, 1 otherwise. Don't run the same batch in the web page at the same time.
-
-The interface and options are in French for now.
 
 File pickers use the system dialog: PowerShell on Windows, `osascript` on macOS, `zenity` or `kdialog` on Linux. Without any of them, type the path in the field.
 
@@ -90,8 +88,8 @@ File pickers use the system dialog: PowerShell on Windows, `osascript` on macOS,
 
 `Transcription → AI review → Validation → Translation → Dubbing → MKV`. Each video in a batch shows its steps as dots, read from disk: a finished step is not redone, even after a restart.
 
-- **Choose at the start**, for one video or a batch: *subtitles only*, or *subtitles + dubbing*. The steps and buttons follow. A batch can change its goal later; switching to dubbing starts nothing until you click **Reprendre** or **Continuer**.
-- **Continuer** takes one episode to the end of what the batch must produce, ahead of the others, so you can check it before running the rest.
+- **Choose at the start**, for one video or a batch: *subtitles only*, or *subtitles + dubbing*. The steps and buttons follow. A batch can change its goal later; switching to dubbing starts nothing until you click **Resume** or **Continue**.
+- **Continue** takes one episode to the end of what the batch must produce, ahead of the others, so you can check it before running the rest.
 - **AI review** (needs a Claude translator, a few cents per video) finds proper names the transcription distorted. Nothing changes without your validation. Accepted names go to `sous-titres.glossaire.json`, and `transcription.json` is never rewritten.
 - A `.srt` you edited by hand is not overwritten, unless you tick the redo option. Dubbing and the MKV then use your version.
 
@@ -105,7 +103,7 @@ The result is `<video>.multi.mkv` next to the video: original tracks copied with
 
 ## Settings
 
-Open **Réglages** on the page. Your settings are saved in `config.json` in the user folder (`%LOCALAPPDATA%\sous-titres` on Windows, `$XDG_CONFIG_HOME/sous-titres` or `~/.config/sous-titres` elsewhere). They override the defaults shipped in `soustitres/config.toml`, which only contains examples.
+Open **Settings** on the page. Your settings are saved in `config.json` in the user folder (`%LOCALAPPDATA%\sous-titres` on Windows, `$XDG_CONFIG_HOME/sous-titres` or `~/.config/sous-titres` elsewhere). They override the defaults shipped in `soustitres/config.toml`, which only contains examples.
 
 **API keys are never stored in clear text.** The key field holds a reference, and a plain value is refused:
 
@@ -114,6 +112,18 @@ Open **Réglages** on the page. Your settings are saved in `config.json` in the 
 | `env:<NAME>` | environment variable |
 | `file:<path>` | file containing the key, outside the repository |
 | `sops:<file>#<NAME>` | decrypted when used, if sops is installed |
+
+## Languages
+
+The page, the task logs, the error messages and the command line are in English and French.
+
+- **Web page**: it follows the browser language. The selector at the top of the page fixes it; the choice is saved (`langue_interface` setting) and the task logs follow it too.
+- **Command line**: `--lang`, otherwise the `langue_interface` setting, otherwise the system language.
+- **API**: send `X-Langue: en` (or `fr`) to get error messages in that language.
+
+**Adding a language** takes one file and no code: copy `soustitres/locales/en.json` to `<code>.json` (for example `de.json`) and translate the values. Keep the `{placeholders}` as they are. A text that depends on a number has one form per plural category (`one`, `other`, plus `few` or `many` where the language needs them). A missing text falls back to English, and the new language shows up in the selector by itself. Language names come from the browser, so there is nothing to translate for them. `pytest` checks that every file has the same keys and placeholders as `en.json`.
+
+The setting names, the command line options and the API fields stay in French: they are identifiers, not text.
 
 ## How it works
 
@@ -130,7 +140,7 @@ Open **Réglages** on the page. Your settings are saved in `config.json` in the 
 
 ## HTTP API
 
-The web page uses a local JSON API on `http://127.0.0.1:4420`, which scripts can use too. It has no authentication: it only listens on the local machine. The full list is at the top of `soustitres/web/serveur.py`.
+The web page uses a local JSON API on `http://127.0.0.1:4420`, which scripts can use too. It has no authentication: it only listens on the local machine. Error messages follow the `X-Langue` header (`en`, `fr`). The full list is at the top of `soustitres/web/serveur.py`.
 
 | Request | Purpose |
 | --- | --- |

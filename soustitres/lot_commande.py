@@ -10,7 +10,7 @@ la transcription conservée. `--nouveau-lot` repart d'un inventaire du dossier.
 import time
 from pathlib import Path
 
-from . import dossier, langue, source
+from . import dossier, i18n, langue, source
 
 ATTENTE_S = 1.0
 
@@ -53,13 +53,13 @@ def executer(chemin: str, cfg: dict, journal, *, transcription: str | None = Non
             modifs["langues"] = langues
         g.lot_reprendre(lot.id, modifs)
         faites = sum(1 for v in lot.videos if v["etat"] == "fait")
-        journal(f"Reprise du lot {lot.fichier} : {faites}/{len(lot.videos)} vidéo(s) déjà faite(s).")
+        journal(i18n.t("log.cli_batch_resume", file=lot.fichier, done=faites, n=len(lot.videos)))
     else:
         if not p.is_dir():
-            raise source.ErreurSource(f"dossier introuvable : {p}")
+            raise source.ErreurSource(i18n.t("err.folder_not_found", path=p))
         videos = dossier.parcourir(p, recursif)
         if not videos:
-            raise source.ErreurSource(f"aucune vidéo dans {p}")
+            raise source.ErreurSource(i18n.t("err.no_videos_in", path=p))
         options = {"transcription": transcription or "", "traducteur": traducteur or "", "pause": False, "refaire": refaire}
         if langues is not None:
             options["langues"] = langue.normaliser_codes(langues)
@@ -68,12 +68,12 @@ def executer(chemin: str, cfg: dict, journal, *, transcription: str | None = Non
         if arret:
             options["arret"] = arret
         lot = g.creer_lot(str(p).replace("\\", "/"), [{"chemin": v["chemin"], "langue": langue_parlee or ""} for v in videos], options)
-        journal(f"Lot de {len(videos)} vidéo(s), fichier de lot : {lot.fichier}")
+        journal(i18n.t("log.cli_batch_new", n=len(videos), file=lot.fichier))
     try:
         return suivre(g, lot, journal)
     except KeyboardInterrupt:
         g.lot_suspendre(lot.id)
-        journal(f"Interrompu. Relancer la même commande reprend le lot ({lot.fichier}).")
+        journal(i18n.t("log.cli_interrupted_batch", file=lot.fichier))
         return 130
 
 
@@ -101,8 +101,8 @@ def suivre(g, lot, journal, attente_s: float = ATTENTE_S) -> int:
             break
         time.sleep(attente_s)
     c = {e: sum(1 for v in lot.videos if v["etat"] == e) for e in ("fait", "erreur", "annule")}
-    journal(f"Lot {'terminé' if lot.etat == 'termine' else 'annulé'} : {c['fait']} faite(s), {c['erreur']} en erreur, {c['annule']} annulée(s).")
+    journal(i18n.t("log.cli_batch_finished" if lot.etat == "termine" else "log.cli_batch_cancelled", done=c["fait"], errors=c["erreur"], cancelled=c["annule"]))
     for v in lot.videos:
         if v["etat"] == "erreur":
-            journal(f"  {v['nom']} : {v.get('erreur') or 'erreur'}")
+            journal(f"  {v['nom']} : {v.get('erreur') or i18n.t('state.error')}")
     return 0 if lot.etat == "termine" and not c["erreur"] else 1

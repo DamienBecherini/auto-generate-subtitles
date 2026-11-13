@@ -10,6 +10,8 @@ import subprocess
 import unicodedata
 from pathlib import Path
 
+from . import i18n
+
 
 class ErreurSource(Exception):
     pass
@@ -30,7 +32,7 @@ def est_url(s: str) -> bool:
 def outil(nom: str) -> str:
     chemin = shutil.which(nom)
     if not chemin:
-        raise ErreurSource(f"{nom} introuvable dans le PATH")
+        raise ErreurSource(i18n.t("err.not_in_path", name=nom))
     return chemin
 
 
@@ -69,7 +71,7 @@ def extraire_audio(video: Path, destination_sans_extension: Path) -> Path:
     """Piste audio de la vidéo dans un fichier à part (copie du flux quand le conteneur le permet)."""
     flux = [s for s in _ffprobe(video).get("streams", []) if s.get("codec_type") == "audio"]
     if not flux:
-        raise ErreurSource(f"aucune piste audio dans {video}")
+        raise ErreurSource(i18n.t("err.no_audio_track", path=video))
     codec = flux[0].get("codec_name", "")
     ext = _CONTENEURS.get(codec)
     # Pas with_suffix : « nom.audio » perdrait son « .audio » (le fichier doit s'appeler <nom>.audio.<ext>)
@@ -98,7 +100,7 @@ def chemin_local(chemin: str, commande: list[str]) -> Path:
             chemin = r.stdout.strip()
         m = re.match(r"^/mnt/([a-zA-Z])/(.*)$", chemin)
         if not m:
-            raise ErreurSource(f"yt-dlp écrit hors d'un disque Windows ({chemin}) : régler -o dans ~/.config/yt-dlp/config sur /mnt/…")
+            raise ErreurSource(i18n.t("err.ytdlp_outside_windows", path=chemin))
         return Path(f"{m.group(1).upper()}:/{m.group(2)}")
     return Path(chemin)
 
@@ -109,7 +111,7 @@ def chemin_distant(chemin: Path, commande: list[str]) -> str:
     if os.name == "nt" and Path(commande[0]).stem.lower() == "wsl":
         m = re.match(r"^([a-zA-Z]):/(.*)$", s)
         if not m:
-            raise ErreurSource(f"dossier de sortie hors d'un disque Windows : {chemin}")
+            raise ErreurSource(i18n.t("err.output_outside_windows", path=chemin))
         return f"/mnt/{m.group(1).lower()}/{m.group(2)}"
     return s
 
@@ -140,12 +142,12 @@ def telecharger_youtube(url: str, commande: list[str], journal=print, dossier: P
     infos = infos_youtube(url, commande, dossier)
     video = infos["video"]
     if video.exists():
-        journal(f"Vidéo déjà téléchargée : {video}")
+        journal(i18n.t("log.already_downloaded", path=video))
         return video
-    journal(f"Téléchargement : {infos.get('title')} ({infos.get('duration') or '?'} s) → {video}")
+    journal(i18n.t("log.downloading", title=infos.get("title"), s=infos.get("duration") or "?", path=video))
     r = subprocess.run([*_commande(commande), "--no-playlist", *_options_sortie(commande, dossier), url])
     if r.returncode != 0:
-        raise ErreurSource(f"yt-dlp a échoué (code {r.returncode})")
+        raise ErreurSource(i18n.t("err.ytdlp_failed", code=r.returncode))
     if not video.exists():
-        raise ErreurSource(f"fichier attendu absent après le téléchargement : {video}")
+        raise ErreurSource(i18n.t("err.download_missing", path=video))
     return video

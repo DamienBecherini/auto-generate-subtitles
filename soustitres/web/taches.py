@@ -15,7 +15,7 @@ import traceback
 import uuid
 from pathlib import Path
 
-from .. import config, dossier, doublage, estimation, etapes, glossaire, langue, pipeline, relecture, source, traduction, transcription, transcription_locale
+from .. import config, dossier, doublage, estimation, etapes, glossaire, i18n, langue, pipeline, relecture, source, traduction, transcription, transcription_locale
 from . import temps
 from .lots import Lot
 
@@ -47,6 +47,8 @@ class Tache:
         self.duree_video = float(options.get("duree_video") or 0)   # connue d'avance dans un lot, sinon à l'extraction de l'audio
         self.passe, self.passe_debut = 1, None  # voir temps.py
         self.glossaire_vu = 0.0                # état du glossaire au moment de la découpe
+        self.progres: dict | None = None       # {faits, total} : sous-titres traduits dans la langue en cours
+        self.journal_reprise = 0               # première ligne du journal après la dernière reprise (suivi parallèle)
 
     def ecrire(self, msg: str):
         self.journal.append(time.strftime("[%H:%M:%S] ") + msg)
@@ -69,6 +71,8 @@ class Tache:
         return {"id": self.id, "source": self.options.get("source", ""), "etat": self.etat, "etape": self.etape,
                 "creee": self.creee, "debut": self.debut, "fin": self.fin, "erreur": self.erreur, "resultat": self.resultat,
                 "journal_fichier": self.journal_fichier, "estimation": self.estimation, "reste_s": self.reste_s(), "passe_debut": self.passe_debut,
+                "progres": self.progres, "journal_reprise": self.journal_reprise,
+                "duree_s": None if self.etat in ETATS_ACTIFS else temps.duree_journal(self.journal),
                 "prepare": {"video": str(self.prepare.video), "langue": self.prepare.code, "nb": len(self.prepare.sous_titres),
                             "srt_origine": str(self.prepare.srt_origine)} if self.prepare else None,
                 "options": {k: v for k, v in self.options.items() if k != "source"}}
@@ -88,6 +92,7 @@ class Gestionnaire:
         self.verrou = threading.Lock()
         self.reveil = threading.Event()
         self.historique = self._charger_historique()
+        self._durees: dict[tuple, int | None] = {}
         threading.Thread(target=self._boucle, daemon=True, name="taches").start()
 
     # --- API ---
@@ -96,7 +101,7 @@ class Gestionnaire:
         with self.verrou:
             self.taches[t.id] = t
             self.ordre.append(t.id)
-        t.ecrire(f"En attente : {options.get('source')}")
+        t.ecrire(i18n.t("log.waiting", source=options.get("source")))
         self.reveil.set()
         return t
 
@@ -124,8 +129,8 @@ class Gestionnaire:
             try:
                 lignes = Path(h["journal_fichier"]).read_text(encoding="utf-8").splitlines()
             except OSError:
-                lignes = [f"(journal introuvable : {h['journal_fichier']})"]
-        return {**h, "journal": lignes[depuis:], "journal_total": len(lignes)}
+                lignes = [i18n.t("log.journal_missing", path=h["journal_fichier"])]
+        return {**h, "journal": lignes[depuis:], "journal_total": len(lignes), "duree_s": temps.duree_journal(lignes)}
 
     def annuler(self, ident: str) -> bool:
         t = self.taches.get(ident)
@@ -134,14 +139,13 @@ class Gestionnaire:
         t.annulation = True
         if t.etat in ("en_attente", "en_pause"):
             t.etat, t.fin = "annulee", time.time()
-            t.ecrire("Annulée avant de commencer." if t.prepare is None else
-                     "Annulée en pause : pas de traduction ; sous-titres d'origine laissés dans le dossier de travail.")
+            t.ecrire(i18n.t("log.cancelled_before_start") if t.prepare is None else i18n.t("log.cancelled_in_pause"))
             self._ecrire_journal(t)
             self._archiver(t)
             if t.options.get("lot"):
                 self._maj_lot(t)
         else:
-            t.ecrire("Annulation demandée : arrêt à la fin de l'étape en cours.")
+            t.ecrire(i18n.t("log.cancel_requested"))
         return True
 
     def reprendre(self, ident: str, traducteur: str | None = None, langues: list[str] | None = None) -> Tache | None:
@@ -154,7 +158,9 @@ class Gestionnaire:
         if langues is not None:
             t.options["langues"] = langue.normaliser_codes(langues)
         t.etat = "en_attente"
-        t.ecrire(f"Reprise : traduction par « {t.options.get('traducteur') or 'traducteur actif'} » vers {', '.join(t.options.get('langues') or []) or 'les langues par défaut'}.")
+        t.journal_reprise = len(t.journal)
+        t.ecrire(i18n.t("log.resume_prefix") + " " + i18n.t("log.resumed", translator=t.options.get("traducteur") or i18n.t("log.active_translator"),
+                                                          langs=", ".join(t.options.get("langues") or []) or i18n.t("log.default_languages")))
         self.reveil.set()
         return t
 
@@ -180,7 +186,7 @@ class Gestionnaire:
         if lot:
             return lot.avancement()
         t = self.en_cours()
-        return (t.etape or "tâche en cours") if t else ""
+        return (t.etape or i18n.t("activity.task")) if t else ""
 
     def reste_s(self) -> int | None:
         """Secondes avant la fin du travail en cours (lot, sinon tâche seule), si on peut l'estimer."""
@@ -195,7 +201,7 @@ class Gestionnaire:
         décrites par le fichier de lot, d'où la reprise. Dans les deux cas transcription.json évite de retranscrire."""
         for t in self.en_pause():
             if not t.options.get("lot"):
-                t.ecrire("Service arrêté pendant la pause : relancer la vidéo reprend après la transcription, déjà faite.")
+                t.ecrire(i18n.t("log.stopped_in_pause"))
                 t.etat, t.fin = "annulee", time.time()
                 self._ecrire_journal(t)
                 self._archiver(t)
@@ -206,7 +212,17 @@ class Gestionnaire:
     def liste(self) -> list[dict]:
         courantes = [self.taches[i].resume() for i in reversed(self.ordre)]
         vus = {t["id"] for t in courantes}
-        return courantes + [h for h in self.historique if h["id"] not in vus]
+        return courantes + [{**h, "duree_s": self._duree_archivee(h)} for h in self.historique if h["id"] not in vus]
+
+    def _duree_archivee(self, h: dict) -> int | None:
+        """Durée de la passe d'une tâche archivée, lue une fois dans son journal (voir temps.duree_journal)."""
+        cle = (h["id"], h.get("etat"))
+        if cle not in self._durees:
+            try:
+                self._durees[cle] = temps.duree_journal(Path(h["journal_fichier"]).read_text(encoding="utf-8").splitlines()) if h.get("journal_fichier") else None
+            except OSError:
+                self._durees[cle] = None
+        return self._durees[cle]
 
     # --- Exécution ---
     def _boucle(self):
@@ -544,7 +560,7 @@ class Gestionnaire:
                 v["debut"] = time.time()
             else:
                 if self.reprendre(v["tache"], o.get("traducteur"), o.get("langues")) is None:
-                    v["etat"], v["erreur"] = "erreur", "tâche en pause introuvable (interface redémarrée ?) : reprendre le lot"
+                    v["etat"], v["erreur"] = "erreur", i18n.t("err.paused_task_missing")
                     continue
                 v["etat"], v["debut"] = "en_cours", time.time()
             actives += 1
@@ -600,7 +616,8 @@ class Gestionnaire:
                                 o.get("langue") if o.get("langue") is not None else None, o.get("sortie") or None,
                                 bool(o.get("refaire")), sur_travail=lambda chemin: setattr(t, "travail", chemin),
                                 langues=o.get("langues"), destination=o.get("destination"),
-                                sur_duree=lambda s: setattr(t, "duree_video", t.duree_video or s), glossaire=o.get("glossaire"))
+                                sur_duree=lambda s: setattr(t, "duree_video", t.duree_video or s), glossaire=o.get("glossaire"),
+                                sur_progres=lambda faits, total: setattr(t, "progres", {"faits": faits, "total": total}))
 
     def _executer(self, t: Tache):
         t.etat = "en_cours"
@@ -622,16 +639,16 @@ class Gestionnaire:
                 en_attente = self._relire(t, d, cfg, etape)
                 restantes = pipeline.langues_restantes(t.prepare, pipeline.langues_cibles(d), d.refaire)
                 t.estimation = estimation.estimer(cfg, len(t.prepare.sous_titres), restantes, t.prepare.code)
-                t.ecrire("Estimation de la traduction :\n" + estimation.texte(t.estimation, cfg))
+                t.ecrire(i18n.t("log.estimate") + "\n" + estimation.texte(t.estimation, cfg))
                 m_trad = config.moteur(cfg, "traducteurs", "traducteur_actif", d.traducteur_id)
                 if o.get("verifier") and en_attente:
                     t.etat, t.etape = "en_pause", "relecture"
-                    t.ecrire(f"En pause : {len(en_attente)} nom(s) à vérifier avant de continuer cet épisode.")
+                    t.ecrire(i18n.t("log.pause_prefix") + " " + i18n.t("log.paused_names", n=len(en_attente)))
                     return
                 pause = o.get("pause") if o.get("pause") is not None else estimation.pause_par_defaut(m_trad)
                 if pause and t.estimation["langues"] and m_trad.get("type", "aucun") != "aucun":
                     t.etat, t.etape = "en_pause", "traduction"
-                    t.ecrire("En pause : choisir le traducteur et les langues, puis « Traduire » (ou « Terminer sans traduire »).")
+                    t.ecrire(i18n.t("log.pause_prefix") + " " + i18n.t("log.paused_translate"))
                     return
             r = pipeline.traduire_et_copier(d, t.prepare, t.ecrire, etape, annule)
             t.resultat = {"video": str(r.video), "srt": str(r.srt), "srt_origine": str(r.srt_origine), "langue": r.langue,
@@ -644,13 +661,13 @@ class Gestionnaire:
             t.etat = "terminee"
         except pipeline.Annulee:
             t.etat = "annulee"
-            t.ecrire("Annulée.")
+            t.ecrire(i18n.t("log.cancelled"))
         except ERREURS_CONNUES as e:
             t.etat, t.erreur = "erreur", str(e)
-            t.ecrire(f"Erreur : {e}")
+            t.ecrire(i18n.t("log.error", error=e))
         except Exception as e:  # noqa: BLE001 - une tâche ne doit pas tuer la boucle
             t.etat, t.erreur = "erreur", f"{type(e).__name__} : {e}"
-            t.ecrire("Erreur inattendue :\n" + traceback.format_exc())
+            t.ecrire(i18n.t("log.unexpected_error") + "\n" + traceback.format_exc())
         finally:
             if t.etat in ("en_pause", "terminee"):
                 self._fin_de_passe(t)
@@ -677,13 +694,13 @@ class Gestionnaire:
             return []
         m = relecture.moteur(cfg, o.get("traducteur") or None)
         if m is None:
-            t.ecrire("Relecture IA sautée : aucun traducteur Claude configuré.")
+            t.ecrire(i18n.t("log.review_skipped"))
             return []
         etape("relecture")
         try:
             noms = relecture.relire(m, o["fichier_lot"], t.prepare.travail, t.prepare.video.name, [s.texte for s in t.prepare.sous_titres], t.ecrire, lambda: t.annulation)
         except (traduction.ErreurTraduction, ValueError, KeyError) as e:
-            t.ecrire(f"Relecture IA non faite : {e}")
+            t.ecrire(i18n.t("log.review_failed", error=e))
             noms = []
         if t.annulation:
             raise pipeline.Annulee()
@@ -706,12 +723,12 @@ class Gestionnaire:
             return
         try:
             f = t.travail / f"journal-{time.strftime('%Y%m%d-%H%M', time.localtime(t.debut or t.creee))}-{t.id}.txt"
-            entete = [f"# Tâche {t.id} : {t.options.get('source')}", f"# Options : {json.dumps(t.options, ensure_ascii=False)}",
-                      f"# État final : {t.etat}" + (f" ({t.erreur})" if t.erreur else "")]
+            entete = ["# " + i18n.t("log.file_task", id=t.id, source=t.options.get("source")), "# " + i18n.t("log.file_options", options=json.dumps(t.options, ensure_ascii=False)),
+                      "# " + i18n.t("log.file_state", state=t.etat) + (f" ({t.erreur})" if t.erreur else "")]
             f.write_text("\n".join(entete + t.journal) + "\n", encoding="utf-8")
             t.journal_fichier = str(f)
         except OSError as e:
-            t.ecrire(f"Journal non enregistré : {e}")
+            t.ecrire(i18n.t("log.journal_not_saved", error=e))
 
     # --- Historique ---
     def _charger_historique(self) -> list[dict]:
