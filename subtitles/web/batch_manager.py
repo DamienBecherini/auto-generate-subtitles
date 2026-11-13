@@ -217,8 +217,20 @@ class BatchManager:
             batch.options["stop"] = changes["stop"]
         batch.state = BatchState.RUNNING
         batch.save()
+        if changes.get("transcription"):
+            self._move_transcriptions(batch, changes["transcription"])
         self.queue.wake.set()
         return True
+
+    def _move_transcriptions(self, batch: Batch, engine: str):
+        """After Pause, the running video goes on to its end: if it is still being transcribed by another engine than
+        the one just chosen, it is stopped (back in the list) and starts again on the chosen one."""
+        for v in batch.videos:
+            t = self.queue.get(v.get("task") or "") if v["state"] == VideoState.RUNNING else None
+            if t and t.state in ACTIVE_TASK_STATES and t.prepared is None and t.pass_no == 1 \
+                    and (t.options.get("transcription") or "") != engine:
+                t.options["stopped"] = True
+                self.queue.cancel(t.id)
 
     def translate(self, ident: str, translator: str | None, languages: list[str] | None, stop: str | None = None) -> bool:
         batch = self.all.get(ident)

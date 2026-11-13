@@ -1,7 +1,7 @@
-# Installing auto-generate-subtitles with an AI coding agent
+# Installing dl-sub-dub with an AI coding agent
 
 This file is for an AI coding agent (Claude Code, Codex, Cursor…) asked to install and configure
-auto-generate-subtitles on the user's machine. The human-facing documentation is [README.md](README.md). Follow the
+dl-sub-dub on the user's machine. The human-facing documentation is [README.md](README.md). Follow the
 steps in order, and keep the user in the loop: they choose the engines and the languages, you find what the
 machine already has.
 
@@ -32,7 +32,7 @@ machine already has.
   For YouTube, recent versions also need a JavaScript runtime (Deno, or Node 22 or later given with
   `--js-runtimes node:<path>` in the yt-dlp configuration file): check with `yt-dlp --simulate <a short public video>`.
 - The port: 4420. If something already answers on `http://127.0.0.1:4420/`, ask what it is before going on.
-- Install folder: ask, and default to `~/auto-generate-subtitles`.
+- Install folder: ask, and default to `~/dl-sub-dub`.
 - **The power of the machine**, read-only, for the recommendations of steps 3 and 4: processor and number of
   cores, RAM, graphics card and its video memory (`nvidia-smi --query-gpu=name,memory.total --format=csv`;
   Windows: `Get-CimInstance Win32_VideoController`; macOS: `system_profiler SPHardwareDataType SPDisplaysDataType`,
@@ -42,7 +42,7 @@ machine already has.
 ## 2. Install
 
 ```
-git clone https://github.com/DamienBecherini/auto-generate-subtitles.git <install folder>
+git clone https://github.com/DamienBecherini/dl-sub-dub.git <install folder>
 cd <install folder>
 python3 -m venv .venv                         # Windows: python -m venv .venv
 .venv/bin/pip install .                       # Windows: .venv/Scripts/python -m pip install .

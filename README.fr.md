@@ -1,8 +1,8 @@
 <div align="center">
 
-# auto-generate-subtitles
+# dl-sub-dub
 
-**Des sous-titres pour une vidéo ou une playlist en ligne (YouTube, Dailymotion, PeerTube, Arte…), un fichier ou un dossier entier, calés sur la parole, dans les langues voulues.**
+**Télécharge une vidéo ou une playlist du web (YouTube, Dailymotion, PeerTube, Arte…), ou prend un fichier ou un dossier entier, et en tire des sous-titres calés sur la parole dans les langues voulues, et une version doublée si vous le souhaitez. Le téléchargement et le doublage sont facultatifs : *dl*-sub-*dub*.**
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org)
 [![No dependencies](https://img.shields.io/badge/dependencies-standard%20library%20only-2EA043)](pyproject.toml)
@@ -18,7 +18,7 @@
 
 ---
 
-Sous-titres d'une vidéo en ligne (essayé avec YouTube, Dailymotion, PeerTube et Arte ; d'autres [sites pris en charge par yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) peuvent fonctionner, sauf ceux qui exigent un compte) ou d'un fichier vidéo dans sa langue et dans les langues voulues. La transcription passe par un serveur compatible OpenAI que vous fournissez ; la traduction par une IA locale, l'API Claude, toute API compatible OpenAI, ou rien. Les fichiers `.srt` et `.vtt` sont calés sur la parole. Interface web locale ou ligne de commande.
+Télécharge une vidéo ou une playlist en ligne (essayé avec YouTube, Dailymotion, PeerTube et Arte ; d'autres [sites pris en charge par yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) peuvent fonctionner, sauf ceux qui exigent un compte), ou prend un fichier vidéo ou un dossier, et le sous-titre dans sa langue et dans les langues voulues. La transcription passe par un serveur compatible OpenAI que vous fournissez ; la traduction par une IA locale, l'API Claude, toute API compatible OpenAI, ou rien. Les fichiers `.srt` et `.vtt` sont calés sur la parole. En option, la vidéo est doublée dans une langue traduite avec la voix d'origine clonée (carte graphique nécessaire), le tout réuni dans un MKV. Interface web locale ou ligne de commande.
 
 ![Un dossier de vidéos sous-titré en lot : progression, étapes et journal en direct](docs/images/fr/batch-running-dark.png)
 
@@ -39,7 +39,7 @@ et traduite en anglais et en espagnol par une IA locale (Qwen3.6 avec llama.cpp)
 **Avec un agent IA de code.** Ouvrez Claude Code, Codex, Cursor ou un autre agent sur la machine qui fera les sous-titres, et collez :
 
 ```
-Install and configure auto-generate-subtitles from https://github.com/DamienBecherini/auto-generate-subtitles on this machine.
+Install and configure dl-sub-dub from https://github.com/DamienBecherini/dl-sub-dub on this machine.
 Follow its AGENTS.md. Ask me before anything that needs a password or administrator rights.
 ```
 
@@ -52,8 +52,8 @@ Il vérifie Python, `ffmpeg` et `yt-dlp`, cherche un serveur de transcription d�
 **2. Installez cet outil.** Il faut Python 3.11 ou plus, ainsi que `ffmpeg` et `ffprobe` dans le `PATH`. `yt-dlp` ne sert que pour les adresses de vidéos.
 
 ```
-git clone https://github.com/DamienBecherini/auto-generate-subtitles.git
-cd auto-generate-subtitles
+git clone https://github.com/DamienBecherini/dl-sub-dub.git
+cd dl-sub-dub
 python -m venv .venv
 .venv/bin/pip install .             # Windows : .venv/Scripts/python -m pip install .
 .venv/bin/python -m subtitles.web --open
@@ -93,7 +93,9 @@ La page :
   (pause cochée) une **estimation cumulée** et **Traduire tout** avec le traducteur choisi à ce moment. **Pause**
   arrête le lot à la fin de la vidéo en cours ; **Arrêter** le met en pause tout de suite : la vidéo en cours
   s'interrompt en quelques secondes (le serveur de transcription est prévenu) et repartira de ce qu'elle a fini ;
-  **Reprendre** relance le lot. Une fois un travail lancé, les réglages de la page se replient en une ligne
+  **Reprendre** relance le lot. Le bouton 🎨 choisit le mode (système, clair ou sombre) et une palette par mode :
+  cinq claires et quatre sombres, dont trois sans lumière bleue ; le bouton soleil / lune bascule le mode. Mémorisé
+  dans le navigateur. Une fois un travail lancé, les réglages de la page se replient en une ligne
   (**Modifier** les déplie) et se déplient d'eux-mêmes dès qu'on donne une nouvelle vidéo, un dossier ou une adresse.
 - **Tout transcrire d'abord** (la case de pause, quand un dossier est ouvert) : le lot transcrit toutes les vidéos, puis
   affiche le coût cumulé de toutes les traductions pour chaque modèle, sans compter celles déjà faites et conservées.

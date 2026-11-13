@@ -3,8 +3,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "auto-generate-subtitles"
-description = "Subtitles for a YouTube video or a local file: self-hosted transcription, translation by a local or remote LLM, timed .srt and .vtt files."
+name = "dl-sub-dub"
+description = "Download a video or playlist from the web, or take a file or folder: self-hosted transcription, translation by a local or remote LLM, timed .srt and .vtt files, optional dubbing."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"

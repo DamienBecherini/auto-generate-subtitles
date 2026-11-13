@@ -84,3 +84,43 @@ def test_a_translation_stopped_on_request_is_cancelled_not_in_error(tmp_path, mo
     monkeypatch.setattr(q, "request", lambda *_a: pipeline.Request("v.mp4", {}))
     q._run(t)
     assert t.state == TaskState.CANCELLED and t.error == ""
+
+
+def test_resume_on_another_transcription_moves_the_video_still_transcribing(tmp_path, monkeypatch):
+    """Pause lets the running video go on: resumed with another transcription engine, it starts again on that one."""
+    g, batch, t = setup(tmp_path, monkeypatch)
+    t.options["transcription"] = "server"
+    assert g.batches.suspend("L")
+    assert g.batches.resume("L", {"transcription": "local"})
+    assert t.cancel_requested and t.options["stopped"]
+    t.state = TaskState.CANCELLED
+    g.batches.task_changed(t)
+    g.batches.feed()
+    v = batch.videos[0]
+    assert v["state"] == VideoState.RUNNING and g.queue.get(v["task"]).options["transcription"] == "local"
+
+
+def test_resume_keeps_a_video_already_transcribed_or_on_the_same_engine(tmp_path, monkeypatch):
+    g, batch, t = setup(tmp_path, monkeypatch)
+    t.options["transcription"] = "local"
+    g.batches.suspend("L")
+    g.batches.resume("L", {"transcription": "local"})
+    assert not t.cancel_requested
+    t.options["transcription"], t.prepared = "server", object()     # transcription done: nothing to move
+    g.batches.suspend("L")
+    g.batches.resume("L", {"transcription": "local"})
+    assert not t.cancel_requested
+
+
+def test_a_cancelled_batch_is_resumed_from_its_file(tmp_path, monkeypatch):
+    """Resume on a cancelled batch reads its file back: finished videos kept, the cancelled one to do again."""
+    from subtitles.web import batch_manager
+    monkeypatch.setattr(batch_manager.BatchManager, "_measure_durations", lambda *_a: None)
+    monkeypatch.setattr(batch_manager.BatchManager, "observe", staticmethod(lambda *_a: None))
+    g, batch, t = setup(tmp_path, monkeypatch)
+    assert g.batches.cancel("L")
+    assert batch.videos[0]["state"] == VideoState.CANCELLED
+    again = g.batches.load(str(batch.file))
+    assert again.state == BatchState.SUSPENDED
+    assert [v["state"] for v in again.videos] == [VideoState.TODO, VideoState.DONE, VideoState.TODO]
+    assert g.batches.resume(again.id)

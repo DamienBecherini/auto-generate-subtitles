@@ -18,6 +18,45 @@
   --bg: #121a20; --card: #1b262e; --text: #e6edf2; --muted: #93a4b0; --border: #2c3a44;
   --accent: #4fa3b8; --accent-text: #0e1a20; --drop: #16222a; --log: #0a1115; --log-text: #c7d5de; --ok-text: #35b3a3; --error-text: #f08a7c; --bar: #1f6b62; --field-border: #64798a; --attention-border: #e9a23b; --scroll-shadow: rgba(0, 0, 0, .45);
 }
+/* Palettes (Theme window): data-palette on <html> is the palette of the mode shown, set by app.js and the script at
+   the top of index.html; the same block colours the preview of each palette (.swatch). Greys and accent change; the
+   colours of the states (ok, attention, error) stay those of the mode. The first palette of each mode is the default. */
+:root[data-palette="slate"], .swatch[data-palette="slate"] {
+  --bg: #f4f6f8; --card: #ffffff; --text: #1d2a33; --muted: #5b6b76; --border: #d9e0e6; --accent: #264653; --accent-text: #ffffff;
+  --drop: #eef3f6; --log: #0f1b22; --log-text: #d6e2ea; --bar: #8fd8cf; --field-border: #7f8f9b; --scroll-shadow: rgba(29, 42, 51, .18);
+}
+:root[data-palette="sand"], .swatch[data-palette="sand"] {      /* stone greys, orange */
+  --bg: #f5f5f4; --card: #ffffff; --text: #292524; --muted: #57534e; --border: #e7e5e4; --accent: #c2410c; --accent-text: #ffffff;
+  --drop: #fafaf9; --log: #1c1917; --log-text: #e7e5e4; --bar: #fdba74; --field-border: #78716c; --scroll-shadow: rgba(41, 37, 36, .18);
+}
+:root[data-palette="sage"], .swatch[data-palette="sage"] {      /* neutral greys, teal */
+  --bg: #f5f5f5; --card: #ffffff; --text: #262626; --muted: #525252; --border: #e5e5e5; --accent: #0f766e; --accent-text: #ffffff;
+  --drop: #fafafa; --log: #171717; --log-text: #e5e5e5; --bar: #5eead4; --field-border: #737373; --scroll-shadow: rgba(38, 38, 38, .18);
+}
+:root[data-palette="lavender"], .swatch[data-palette="lavender"] {   /* zinc greys, violet */
+  --bg: #f4f4f5; --card: #ffffff; --text: #27272a; --muted: #52525b; --border: #e4e4e7; --accent: #6d28d9; --accent-text: #ffffff;
+  --drop: #fafafa; --log: #18181b; --log-text: #e4e4e7; --bar: #c4b5fd; --field-border: #71717a; --scroll-shadow: rgba(39, 39, 42, .18);
+}
+:root[data-palette="raspberry"], .swatch[data-palette="raspberry"] {  /* grey, rose */
+  --bg: #f3f4f6; --card: #ffffff; --text: #1f2937; --muted: #4b5563; --border: #e5e7eb; --accent: #be123c; --accent-text: #ffffff;
+  --drop: #f9fafb; --log: #111827; --log-text: #e5e7eb; --bar: #fda4af; --field-border: #6b7280; --scroll-shadow: rgba(31, 41, 55, .18);
+}
+:root[data-palette="night"], .swatch[data-palette="night"] {
+  --bg: #121a20; --card: #1b262e; --text: #e6edf2; --muted: #93a4b0; --border: #2c3a44; --accent: #4fa3b8; --accent-text: #0e1a20;
+  --drop: #16222a; --log: #0a1115; --log-text: #c7d5de; --bar: #1f6b62; --field-border: #64798a; --scroll-shadow: rgba(0, 0, 0, .45);
+}
+:root[data-palette="warm"], .swatch[data-palette="warm"] {      /* stone greys, orange: no blue light */
+  --bg: #0c0a09; --card: #1c1917; --text: #f5f5f4; --muted: #a8a29e; --border: #44403c; --accent: #fb923c; --accent-text: #0c0a09;
+  --drop: #292524; --log: #0c0a09; --log-text: #d6d3d1; --bar: #9a3412; --field-border: #78716c; --scroll-shadow: rgba(0, 0, 0, .5);
+}
+:root[data-palette="olive"], .swatch[data-palette="olive"] {     /* stone greys, lime: no blue light */
+  --bg: #0c0a09; --card: #1c1917; --text: #f5f5f4; --muted: #a8a29e; --border: #44403c; --accent: #a3e635; --accent-text: #0c0a09;
+  --drop: #292524; --log: #0c0a09; --log-text: #d6d3d1; --bar: #3f6212; --field-border: #78716c; --scroll-shadow: rgba(0, 0, 0, .5);
+}
+:root[data-palette="embers"], .swatch[data-palette="embers"] {   /* neutral greys, red: no blue light */
+  --bg: #0a0a0a; --card: #171717; --text: #f5f5f5; --muted: #a3a3a3; --border: #404040; --accent: #f87171; --accent-text: #0a0a0a;
+  --drop: #262626; --log: #0a0a0a; --log-text: #d4d4d4; --bar: #991b1b; --field-border: #737373; --scroll-shadow: rgba(0, 0, 0, .5);
+}
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }   /* wins over the grid/flex display of the panels (pause, result, batch) */
 body { margin: 0; font: 15px/1.45 system-ui, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); }
@@ -181,14 +220,14 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .dialog-bar .help { max-width: 40ch; text-align: right; }
 .dialog-bar h2:focus { outline: none; }    /* focus on opening: on the title, not on the first button (nor a field, which opens a phone keyboard) */
 
-/* Phone and narrow window: a compact header that scrolls away (title, theme and Settings on the first line; engine
-   chips on a line of their own, scrolled sideways, then the language), tighter margins. */
+/* Phone and narrow window: a compact header that scrolls away (title, theme, palettes and Settings on the first line,
+   the title shortened if needed; engine chips scrolled sideways and the language on the second), tighter margins. */
 @media (max-width: 760px) {
   header { position: static; padding: 8px 12px; gap: 8px; }
-  header h1 { flex: 1 1 auto; min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; }
+  header h1 { flex: 1 1 0; min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; }   /* 0: it gives way, the buttons never wrap */
   header .theme { order: 1; }
   #btn-settings { order: 2; }
-  .engines { order: 3; flex: 1 1 50%; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }   /* 50%: on the second line */
+  .engines { order: 3; flex: 1 1 calc(100% - 160px); min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }   /* never on the first line */
   .engines::-webkit-scrollbar { display: none; }
   .language-choice { order: 4; flex: 0 1 auto; max-width: 42%; }
   .header-link { display: none; }
@@ -228,3 +267,16 @@ code { font: 12.5px ui-monospace, Consolas, monospace; background: var(--bg); pa
 }
 .log-actions { display: flex; justify-content: flex-end; margin-top: .4em; }
 #task .log-actions:not(:has(button:not([hidden]))) { display: none; }
+/* Theme window: mode, then a card per palette (preview: background, text, accent of the palette). */
+#dlg-theme { width: min(680px, 94vw); }
+.palettes { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.palette { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.palette:hover { border-color: var(--accent); }
+.palette:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.palette:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.palette input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.palette .name { display: block; font-weight: 600; }
+.palette .desc { display: block; font-size: 13px; color: var(--muted); }
+.swatch { display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: none; width: 64px; height: 32px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); }
+.swatch i { width: 12px; height: 12px; border-radius: 50%; }
+.swatch i:nth-child(1) { background: var(--muted); } .swatch i:nth-child(2) { background: var(--text); } .swatch i:nth-child(3) { background: var(--accent); }

@@ -3,8 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Subtitles</title>
-<script>try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<title>dl-sub-dub</title>
+<script>
+/* Before the first paint: mode (light, dark, or the system's) and palette of that mode, as app.js sets them. */
+try {
+  const r = document.documentElement, t = localStorage.getItem("theme");
+  if (t) r.dataset.theme = t;
+  const mode = t || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  r.dataset.palette = localStorage.getItem("palette-" + mode) || (mode === "dark" ? "night" : "slate");
+} catch (e) {}
+</script>
 <link rel="stylesheet" href="/static/style.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23264653'/%3E%3Crect x='6' y='19' width='20' height='3' rx='1.5' fill='%23fff'/%3E%3Crect x='9' y='24' width='14' height='3' rx='1.5' fill='%23fff'/%3E%3C/svg%3E">
 </head>
@@ -19,6 +27,7 @@
   <a id="github-link" class="header-link" href="#" target="_blank" rel="noopener" aria-disabled="true">GitHub</a>
   <select id="language-choice" class="language-choice" data-i18n-title="ui.header.language" data-i18n-aria-label="ui.header.language"></select>
   <button id="btn-theme" class="secondary theme" type="button"></button>
+  <button id="btn-palettes" class="secondary theme" type="button" data-i18n-title="ui.theme.palettes" data-i18n-aria-label="ui.theme.palettes">🎨</button>
   <button id="btn-settings" class="secondary" disabled data-i18n="ui.settings"></button>
   <span class="chip attention process" id="process" hidden></span>
 </header>
@@ -171,8 +180,11 @@
       <div class="options">
         <label><span data-i18n="ui.transcription"></span> <select id="batch-susp-transcription"></select></label>
         <label><span data-i18n="ui.translator"></span> <select id="batch-susp-translator"></select></label>
+        <label id="batch-susp-model-zone" hidden><span data-i18n="ui.model"></span> <select id="batch-susp-model"></select></label>
+        <label id="batch-susp-effort-zone" hidden><span data-i18n="ui.effort"></span> <select id="batch-susp-effort"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>
         <div class="wide group"><span class="help" data-i18n="ui.target_languages"></span><div id="batch-susp-languages" class="checks"></div></div>
       </div>
+      <span class="help" id="batch-susp-message"></span>
     </div>
     <div id="batch-pause" class="pause" hidden>
       <div><strong data-i18n="ui.batch.all_transcribed"></strong> <span class="help" id="batch-pause-summary"></span></div>
@@ -255,6 +267,24 @@
     <ul id="history" class="list"></ul>
   </section>
 </main>
+
+<dialog id="dlg-theme">
+  <div class="head dialog-bar">
+    <h2 data-i18n="ui.theme.title" tabindex="-1" autofocus></h2>
+    <button type="button" class="close" id="btn-close-theme" data-i18n-aria-label="ui.close">×</button>
+  </div>
+  <h3 data-i18n="ui.theme.mode"></h3>
+  <div class="checks" id="theme-modes">
+    <label class="check"><input type="radio" name="theme-mode" value="system"> <span data-i18n="ui.theme.system"></span></label>
+    <label class="check"><input type="radio" name="theme-mode" value="light"> <span data-i18n="ui.theme.light"></span></label>
+    <label class="check"><input type="radio" name="theme-mode" value="dark"> <span data-i18n="ui.theme.dark"></span></label>
+  </div>
+  <h3 data-i18n="ui.theme.light_palettes"></h3>
+  <div class="palettes" id="palettes-light"></div>
+  <h3 data-i18n="ui.theme.dark_palettes"></h3>
+  <div class="palettes" id="palettes-dark"></div>
+  <p class="help" data-i18n="ui.theme.help"></p>
+</dialog>
 
 <dialog id="dlg-settings">
   <form method="dialog" id="form-settings">

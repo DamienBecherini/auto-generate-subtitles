@@ -1,8 +1,8 @@
 <div align="center">
 
-# auto-generate-subtitles
+# dl-sub-dub
 
-**Subtitles for an online video or playlist (YouTube, Dailymotion, PeerTube, Arte…), a file or a whole folder, timed on the actual speech, in the languages you want.**
+**Download a video or a playlist from the web (YouTube, Dailymotion, PeerTube, Arte…), or take a file or a whole folder, and get subtitles timed on the actual speech in the languages you want, and a dubbed version if you like. Downloading and dubbing are optional: *dl*-sub-*dub*.**
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org)
 [![No dependencies](https://img.shields.io/badge/dependencies-standard%20library%20only-2EA043)](pyproject.toml)
@@ -18,7 +18,7 @@
 
 ---
 
-Subtitles for an online video (tested with YouTube, Dailymotion, PeerTube and Arte; other [sites yt-dlp supports](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) may work, except those that require an account) or a video file, in its own language and in the languages you want. You bring the transcription server; translation runs on a local LLM, the Claude API, any OpenAI-compatible API, or not at all. Output is `.srt` and `.vtt` files timed on the actual speech.
+Downloads an online video or playlist (tested with YouTube, Dailymotion, PeerTube and Arte; other [sites yt-dlp supports](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) may work, except those that require an account), or takes a video file or a folder, and subtitles it in its own language and in the languages you want. You bring the transcription server; translation runs on a local LLM, the Claude API, any OpenAI-compatible API, or not at all. Output is `.srt` and `.vtt` files timed on the actual speech. Optionally, it dubs the video in a translated language with the original voice cloned (graphics card needed) and puts it all in an MKV.
 
 ![A folder of videos subtitled in a batch: progress, steps and live log](docs/images/en/batch-running-dark.png)
 
@@ -47,7 +47,7 @@ into French and Spanish by a local LLM (Qwen3.6 with llama.cpp), at no cost.
 **With an AI coding agent.** Open Claude Code, Codex, Cursor or another agent on the machine that will make the subtitles, and paste:
 
 ```
-Install and configure auto-generate-subtitles from https://github.com/DamienBecherini/auto-generate-subtitles on this machine.
+Install and configure dl-sub-dub from https://github.com/DamienBecherini/dl-sub-dub on this machine.
 Follow its AGENTS.md. Ask me before anything that needs a password or administrator rights.
 ```
 
@@ -60,8 +60,8 @@ It checks Python, `ffmpeg` and `yt-dlp`, looks for a transcription server alread
 **2. Install this tool.** You need Python 3.11 or later, and `ffmpeg` and `ffprobe` in the `PATH`. `yt-dlp` is needed for video addresses only.
 
 ```
-git clone https://github.com/DamienBecherini/auto-generate-subtitles.git
-cd auto-generate-subtitles
+git clone https://github.com/DamienBecherini/dl-sub-dub.git
+cd dl-sub-dub
 python -m venv .venv
 .venv/bin/pip install .             # Windows: .venv/Scripts/python -m pip install .
 .venv/bin/python -m subtitles.web --open
@@ -95,6 +95,8 @@ Command line options: `--output-dir`, `--language en` (spoken language), `--lang
 A folder becomes a batch, the same as in the web page: `subtitles.batch.json` records its progress, and running the same command after an interruption (Ctrl+C, power cut) resumes it. Finished videos are skipped and the others reuse their saved transcription. The command does not pause before translation. Batch options: `--until translation|dubbing|mux` (last step, translation by default), `--new-batch` (ignore the existing batch file and list the folder again), `--no-subfolders`. You can also pass a `.batch.json` file. The exit code is 0 when every video is done, 1 otherwise. Don't run the same batch in the web page at the same time.
 
 A playlist address (a YouTube playlist or channel, a PeerTube channel…) is downloaded into a folder named after it, in the download folder, with the videos numbered in the order of the list (`001 - title.mp4`); this folder is then processed as a batch. A video that cannot be downloaded (private, removed) is skipped and reported, and running the command again resumes the download. The address of a video inside a playlist (`watch?v=…&list=…`) processes that video alone, or the whole list with `--playlist`. On the page, the preview of the address offers **Download the playlist**, then the folder opens as any source folder.
+
+The 🎨 button chooses the mode (system, light or dark) and a palette for each mode: five light ones and four dark ones, three of them without blue light; the sun / moon button switches the mode. Remembered in the browser.
 
 Once a piece of work is started, the settings of the page fold into one line (**Edit** unfolds them); they unfold by themselves as soon as a new video, folder or address is given.
 

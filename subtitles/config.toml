@@ -111,4 +111,4 @@ steps = 32                                 # generation steps: more = better and
 [web]
 port = 4420
 idle_min = 60                              # the interface stops after this time without action or running work (0 = never)
-github = "https://github.com/DamienBecherini/auto-generate-subtitles"   # address of the public repository (link in the page header; greyed out while empty)
+github = "https://github.com/DamienBecherini/dl-sub-dub"   # address of the public repository (link in the page header; greyed out while empty)

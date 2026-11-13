@@ -57,7 +57,7 @@ def clean_folder(work: Path, opts: dict, log=lambda _m: None, keep: set[Path] | 
     if not work.is_dir():
         return 0, 0
     keep = {p.resolve() for p in (keep or set())}
-    limit = time.time() - float(opts.get("logs_age_h", 48)) * 3600
+    limit = _log_limit(float(opts.get("logs_age_h", 48)))
     total_count = total_bytes = 0
     for cat, files in classify(work).items():
         if not opts.get(cat):
@@ -73,11 +73,17 @@ def clean_folder(work: Path, opts: dict, log=lambda _m: None, keep: set[Path] | 
     return total_count, total_bytes
 
 
+def _log_limit(age_h: float) -> float:
+    """Date before which a log is old enough to go. 0 hours: every log, even one just written (on Windows the date of
+    a file can be a few milliseconds ahead of time.time())."""
+    return float("inf") if age_h <= 0 else time.time() - age_h * 3600
+
+
 def purge_logs(root: Path, age_h: float) -> tuple[int, int]:
     """Logs older than `age_h` hours in every working folder."""
     if not root.is_dir():
         return 0, 0
-    limit = time.time() - age_h * 3600
+    limit = _log_limit(age_h)
     return _delete([f for f in root.glob("*/log-*.txt") if f.is_file() and f.stat().st_mtime <= limit])
 
 

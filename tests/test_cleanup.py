@@ -68,6 +68,17 @@ def test_purge_logs(tmp_path):
     assert cleanup.purge_logs(root, 48) == (0, 0)
 
 
+def test_zero_hours_purges_a_log_dated_a_little_ahead(tmp_path):
+    """On Windows a file just written can be dated a few milliseconds after time.time(): 0 hours still takes it."""
+    root = tmp_path / ".work"
+    (root / "a").mkdir(parents=True)
+    log = root / "a" / "log-20261101-1000-a1.txt"
+    log.write_text("x", encoding="utf-8")
+    ahead = time.time() + 5
+    os.utime(log, (ahead, ahead))
+    assert cleanup.purge_logs(root, 0) == (1, 1)
+
+
 def test_language_names_and_codes():
     assert language.name("fr") == "français" and language.name("en") == "anglais"
     assert "zz" in language.name("zz")

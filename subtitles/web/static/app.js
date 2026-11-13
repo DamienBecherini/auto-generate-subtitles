@@ -33,12 +33,70 @@ function updateThemeButton() {
   b.title = dark ? T("ui.theme.to_light") : T("ui.theme.to_dark");
   b.setAttribute("aria-label", b.title);
 }
-$("#btn-theme").addEventListener("click", () => {
-  const t = currentTheme() === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = t;
-  try { localStorage.setItem("theme", t); } catch (e) { /* private browsing: valid for this page only */ }
+// Palettes of each mode (colours in style.css); the first one is the default. Each mode keeps its own palette.
+const PALETTES = { light: ["slate", "sand", "sage", "lavender", "raspberry"], dark: ["night", "warm", "olive", "embers"] };
+function remember(key, value) {
+  try { if (value == null) localStorage.removeItem(key); else localStorage.setItem(key, value); }
+  catch (e) { /* private browsing: valid for this page only */ }
+}
+function remembered(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+const paletteOf = (mode) => (PALETTES[mode].includes(remembered("palette-" + mode)) ? remembered("palette-" + mode) : PALETTES[mode][0]);
+
+function applyTheme() {
+  document.documentElement.dataset.palette = paletteOf(currentTheme());
   updateThemeButton();
+  if ($("#dlg-theme").open) markThemeChoices();
+}
+/* mode: "light", "dark", or "system" (the system's, followed when it changes). */
+function setMode(mode) {
+  if (mode === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = mode;
+  remember("theme", mode === "system" ? null : mode);
+  applyTheme();
+}
+$("#btn-theme").addEventListener("click", () => setMode(currentTheme() === "dark" ? "light" : "dark"));
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+
+// Theme window: a card per palette, with its preview coloured by the palette itself (.swatch[data-palette]).
+function paletteCards(mode) {
+  const zone = $(`#palettes-${mode}`);
+  zone.innerHTML = "";
+  for (const id of PALETTES[mode]) {
+    const l = document.createElement("label"); l.className = "palette";
+    const r = Object.assign(document.createElement("input"), { type: "radio", name: `palette-${mode}`, value: id });
+    r.addEventListener("change", () => { remember("palette-" + mode, id); applyTheme(); });
+    const sw = document.createElement("span"); sw.className = "swatch"; sw.dataset.palette = id; sw.setAttribute("aria-hidden", "true");
+    sw.append(document.createElement("i"), document.createElement("i"), document.createElement("i"));
+    const text = document.createElement("span");
+    const name = document.createElement("span"); name.className = "name"; name.dataset.i18n = `ui.palette.${id}`; name.textContent = T(`ui.palette.${id}`);
+    const desc = document.createElement("span"); desc.className = "desc"; desc.dataset.i18n = `ui.palette.${id}_desc`; desc.textContent = T(`ui.palette.${id}_desc`);
+    text.append(name, desc);
+    l.append(r, sw, text);
+    zone.appendChild(l);
+  }
+}
+function markThemeChoices() {
+  const mode = document.documentElement.dataset.theme || "system";
+  for (const r of document.querySelectorAll("input[name=theme-mode]")) r.checked = r.value === mode;
+  for (const m of ["light", "dark"])
+    for (const r of document.querySelectorAll(`input[name=palette-${m}]`)) r.checked = r.value === paletteOf(m);
+}
+const dlgTheme = $("#dlg-theme");
+$("#btn-palettes").addEventListener("click", () => {
+  if (!$("#palettes-light").childElementCount) { paletteCards("light"); paletteCards("dark"); }
+  markThemeChoices();
+  dlgTheme.showModal();
 });
+for (const r of document.querySelectorAll("input[name=theme-mode]")) r.addEventListener("change", () => setMode(r.value));
+$("#btn-close-theme").addEventListener("click", () => dlgTheme.close());
+/* Click outside the window closes it (nothing to save: every choice applies at once). */
+const outsideTheme = (e) => {
+  const b = dlgTheme.getBoundingClientRect();
+  return e.target === dlgTheme && (e.clientX < b.left || e.clientX > b.right || e.clientY < b.top || e.clientY > b.bottom);
+};
+let themePressedOutside = false;
+dlgTheme.addEventListener("pointerdown", (e) => { themePressedOutside = outsideTheme(e); });
+dlgTheme.addEventListener("click", (e) => { if (themePressedOutside && outsideTheme(e)) dlgTheme.close(); themePressedOutside = false; });
 // --- Scrolling zones: shadow and arrow as long as content remains --------------------------------------------------
 
 function watchScrolling(el) {
@@ -994,7 +1052,7 @@ async function refreshBatch() {
   state.className = "state " + b.state;
   $("#btn-batch-suspend").hidden = b.state !== "running";
   $("#btn-batch-stop").hidden = b.state !== "running";
-  $("#btn-batch-resume").hidden = b.state !== "suspended";
+  $("#btn-batch-resume").hidden = !["suspended", "cancelled"].includes(b.state);   // cancelled: read back from its file
   $("#btn-batch-cancel").hidden = ["done", "cancelled"].includes(b.state);
   $("#btn-batch-retry").hidden = !b.counts.error || b.state === "cancelled";
   $("#btn-batch-retry").textContent = T("ui.batch.retry_failed", { n: b.counts.error });
@@ -1062,41 +1120,43 @@ async function showBatchPause(b) {
   };
   $("#batch-languages").oninput = update;
   $("#batch-translator").onchange = () => { showBatchClaudeSettings(); showCostsIn($("#batch-costs"), lastBatchEstimate, $("#batch-translator").value); };
-  const changeClaude = () => { batchClaudeSave = saveBatchClaudeSettings(update); };
+  const changeClaude = () => { batchClaudeSave = saveBatchClaudeSettings("batch", update); };
   $("#batch-model").onchange = changeClaude;
   $("#batch-effort").onchange = changeClaude;
   showBatchClaudeSettings();
   await update();
 }
 
-/* Model and effort of the chosen Claude translator: editable here, because the translation of the batch reads the configuration again. */
+/* Model and effort of the chosen Claude translator: editable here, because the translation of the batch reads the
+   configuration again. `p`: the panel, "batch" (before translation) or "batch-susp" (batch in pause). */
 let batchClaudeSave = Promise.resolve();
 
-function showBatchClaudeSettings() {
-  const m = engine("translators", $("#batch-translator").value), claude = m?.type === "claude";
-  $("#batch-model-zone").hidden = !claude; $("#batch-effort-zone").hidden = !claude;
-  $("#batch-effort-note").hidden = !claude || (m.effort || "low") === "low";
+function showBatchClaudeSettings(p = "batch") {
+  const m = engine("translators", $(`#${p}-translator`).value), claude = m?.type === "claude";
+  $(`#${p}-model-zone`).hidden = !claude; $(`#${p}-effort-zone`).hidden = !claude;
+  const note = $(`#${p}-effort-note`);              // only with a cost estimate (before translation)
+  if (note) note.hidden = !claude || (m.effort || "low") === "low";
   if (!claude) return;
   const offered = [...$("#claude-models").options].map((o) => o.value), current = m.model || "claude-sonnet-5-5";
-  const sel = $("#batch-model");
+  const sel = $(`#${p}-model`);
   sel.innerHTML = "";
   for (const v of offered.includes(current) ? offered : [current, ...offered]) {
     const o = document.createElement("option"); o.value = v; o.textContent = v; sel.appendChild(o);
   }
   sel.value = current;
-  $("#batch-effort").value = m.effort || "low";
+  $(`#${p}-effort`).value = m.effort || "low";
 }
 
-async function saveBatchClaudeSettings(after) {
-  const m = engine("translators", $("#batch-translator").value);
+async function saveBatchClaudeSettings(p, after = async () => {}) {
+  const m = engine("translators", $(`#${p}-translator`).value);
   if (m?.type !== "claude") return;
-  m.model = $("#batch-model").value; m.effort = $("#batch-effort").value;
+  m.model = $(`#${p}-model`).value; m.effort = $(`#${p}-effort`).value;
   try {
     config = await api("PUT", "/api/config", config);
     showTranslatorSettings();           // otherwise the form of the page would write the old value back at the next start
-    showBatchClaudeSettings();
+    showBatchClaudeSettings(p);
     await after();
-  } catch (err) { $("#batch-message").textContent = err.message; }
+  } catch (err) { $(`#${p}-message`).textContent = err.message; }
 }
 
 async function batchAction(action, body) {
@@ -1123,12 +1183,25 @@ function showSuspended(b) {
   fillSelect($("#batch-susp-transcription"), config.transcriptions, b.options?.transcription || config.active_transcription);
   fillSelect($("#batch-susp-translator"), config.translators, b.options?.translator || config.active_translator);
   fillLanguages($("#batch-susp-languages"), b.options?.languages || config.target_languages || ["fr"]);
+  $("#batch-susp-message").textContent = "";
+  showBatchClaudeSettings("batch-susp");
   $("#batch-suspended").hidden = false;
 }
 for (const [top, panel] of [["#opt-transcription", "#batch-susp-transcription"], ["#opt-translator", "#batch-susp-translator"]])
-  $(top).addEventListener("change", () => { if (!$("#batch-suspended").hidden) $(panel).value = $(top).value; });
+  $(top).addEventListener("change", () => {
+    if ($("#batch-suspended").hidden) return;
+    $(panel).value = $(top).value;
+    showBatchClaudeSettings("batch-susp");
+  });
+$("#batch-susp-translator").addEventListener("change", () => showBatchClaudeSettings("batch-susp"));
+for (const s of ["#batch-susp-model", "#batch-susp-effort"])
+  $(s).addEventListener("change", () => { batchClaudeSave = saveBatchClaudeSettings("batch-susp"); });
 
 $("#btn-batch-resume").addEventListener("click", async () => {
+  if (lastBatchView?.state === "cancelled") {     // read back from its file: finished videos kept, the others to do
+    loadBatch(lastBatchView.file, true);
+    return;
+  }
   const translator = $("#batch-susp-translator").value, m = engine("translators", translator);
   const body = { translator, transcription: $("#batch-susp-transcription").value, languages: readLanguages($("#batch-susp-languages")) };
   const changed = translator !== (suspendedBatch?.options?.translator || config.active_translator);
@@ -1136,6 +1209,7 @@ $("#btn-batch-resume").addEventListener("click", async () => {
   if (changed && suspendedBatch?.phase === 2 && m?.type === "claude"
       && !confirm(T("ui.batch.confirm_paid", { name: engineName(m), model: m.model || T("ui.batch.default_model") }))) return;
   await saveTranslatorSettings().catch(() => {});
+  await batchClaudeSave;
   batchAction("resume", body);
 });
 $("#btn-batch-cancel").addEventListener("click", () => { if (confirm(T("ui.batch.confirm_cancel"))) batchAction("cancel"); });
