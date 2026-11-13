@@ -62,9 +62,22 @@ id = "none"
 type = "none"
 
 [youtube]
-# yt-dlp command (with its usual configuration); the output folder above replaces the one of its config (-o).
-# Windows with yt-dlp in WSL: ["wsl", "-e", "bash", "-lc", 'exec yt-dlp "$@"', "yt-dlp"]
+# Downloads of a video or playlist address (YouTube; other sites of yt-dlp may work).
+# yt-dlp command; its own configuration file is still read (cookies, JavaScript runtime…), but the folder and the
+# options below replace the ones it sets. Windows with yt-dlp in WSL: ["wsl", "-e", "bash", "-lc", 'exec yt-dlp "$@"', "yt-dlp"]
 command = ["yt-dlp"]
+# Folder of the downloaded videos (a playlist goes into a subfolder named after it); empty = the output folder.
+download_dir = ""
+# Best quality up to this height in pixels (720, 1080, 1440, 2160; 0 = no limit): no 4K files of several GB for subtitles.
+max_height = 1080
+# Sound at most this bitrate in kb/s when the site offers several (0 = the best).
+max_audio_kbps = 128
+# Container of the video once image and sound are merged.
+merge_format = "mp4"
+# Attempts when a server answers with an error (YouTube sometimes returns a passing 403).
+retries = 10
+# Other yt-dlp options, one item per word, e.g. ["--cookies-from-browser", "firefox"] for videos that need an account.
+extra_args = []
 
 [translation]
 chunk_size = 25                           # subtitles sent to the model per request

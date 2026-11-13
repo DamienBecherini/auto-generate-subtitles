@@ -41,6 +41,14 @@ class VideoState(StrEnum):
     CANCELLED = "cancelled"
 
 
+class DownloadState(StrEnum):
+    LISTING = "listing"                # reading the list of the playlist
+    DOWNLOADING = "downloading"
+    DONE = "done"
+    CANCELLED = "cancelled"
+    ERROR = "error"
+
+
 class ScanState(StrEnum):
     SCANNING = "scanning"
     LANGUAGES = "languages"            # list known, reading the language of the audio tracks

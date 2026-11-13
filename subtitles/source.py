@@ -116,38 +116,134 @@ def remote_path(path: Path, command: list[str]) -> str:
     return s
 
 
-def _output_options(command: list[str], folder: Path | None) -> list[str]:
+TITLE = "%(title)s"                            # yt-dlp template of a file name, without the extension
+
+
+def ytdlp_format(max_height: int = 0, max_audio_kbps: int = 0) -> str:
+    """yt-dlp -f: best image up to `max_height` with sound up to `max_audio_kbps`, falling back step by step down to
+    the best file there is (a site without these sizes still gives its video)."""
+    image = f"bv*[height<={max_height}]" if max_height else "bv*"
+    sound = f"ba[abr<={max_audio_kbps}]" if max_audio_kbps else "ba"
+    whole = f"b[height<={max_height}]" if max_height else "b"
+    choices = [f"{image}+{sound}", f"{image}+ba", whole, "bv*+ba", "b"]
+    return "/".join(dict.fromkeys(choices))
+
+
+def ytdlp_command(cfg: dict) -> list[str]:
+    """Configured yt-dlp command followed by the download settings ([youtube] table)."""
+    y = cfg.get("youtube") or {}
+    options = ["-f", ytdlp_format(int(y.get("max_height") or 0), int(y.get("max_audio_kbps") or 0))]
+    if y.get("merge_format"):
+        options += ["--merge-output-format", str(y["merge_format"])]
+    if int(y.get("retries") or 0):
+        options += ["--retries", str(int(y["retries"])), "--fragment-retries", str(int(y["retries"]))]
+    return [*(y.get("command") or ["yt-dlp"]), *options, *[str(a) for a in y.get("extra_args") or []]]
+
+
+def download_dir(cfg: dict, output_dir: str | Path | None = None) -> Path:
+    """Folder of the downloaded videos: `download_dir` of [youtube], otherwise the output folder."""
+    return Path(os.path.expanduser((cfg.get("youtube") or {}).get("download_dir") or output_dir or cfg["output_dir"]))
+
+
+def _output_options(command: list[str], folder: Path | None, name: str = TITLE) -> list[str]:
     """Replaces the -o of the yt-dlp config by the requested output folder (name = title, final extension)."""
     if folder is None:
         return []
-    return ["-o", remote_path(folder, command) + "/%(title)s.%(ext)s"]
+    return ["-o", remote_path(folder, command) + f"/{name}.%(ext)s"]
 
 
-def youtube_info(url: str, command: list[str], folder: Path | None = None) -> dict:
-    """Id, title, duration (seconds) and target file, without downloading."""
-    r = subprocess.run([*_command(command), "--no-playlist", "--no-download", *_output_options(command, folder),
+def youtube_info(url: str, command: list[str], folder: Path | None = None, name: str = TITLE) -> dict:
+    """Id, title, duration (seconds) and target file, without downloading. Any site yt-dlp knows, not only YouTube.
+    The address of a whole playlist is refused: one line per video would come back, and the download would take them all."""
+    r = subprocess.run([*_command(command), "--no-playlist", "--no-download", *_output_options(command, folder, name),
                         "--print", "%(.{id,title,duration,filename})j", url],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         raise SourceError(f"yt-dlp : {(r.stderr or r.stdout).strip()[-500:]}")
-    info = json.loads(r.stdout.strip().splitlines()[-1])
+    lines = r.stdout.strip().splitlines()
+    if len(lines) > 1:
+        raise SourceError(i18n.t("err.is_playlist", n=len(lines)))
+    info = json.loads(lines[-1])
     info["video"] = local_path(info["filename"], command)
     return info
 
 
-def download_youtube(url: str, command: list[str], log=print, folder: Path | None = None) -> Path:
+def download_youtube(url: str, command: list[str], log=print, folder: Path | None = None, name: str = TITLE) -> Path:
     """Downloads the video with yt-dlp (in WSL by default): format and MP4 merge come from the yt-dlp config
     (~/.config/yt-dlp/config); the output folder replaces its own if `folder` is given. A video already there is
     not downloaded again. The audio is then extracted from the MP4 by ffmpeg, as for a file."""
-    info = youtube_info(url, command, folder)
+    info = youtube_info(url, command, folder, name)
     video = info["video"]
     if video.exists():
         log(i18n.t("log.already_downloaded", path=video))
         return video
     log(i18n.t("log.downloading", title=info.get("title"), s=info.get("duration") or "?", path=video))
-    r = subprocess.run([*_command(command), "--no-playlist", *_output_options(command, folder), url])
+    r = subprocess.run([*_command(command), "--no-playlist", *_output_options(command, folder, name), url])
     if r.returncode != 0:
         raise SourceError(i18n.t("err.ytdlp_failed", code=r.returncode))
     if not video.exists():
         raise SourceError(i18n.t("err.download_missing", path=video))
     return video
+
+
+# --- Playlists: downloaded into a folder of their own, which then becomes a batch like any folder -----------------
+
+PLAYLIST_TIMEOUT_S = 300
+
+
+def _flat(url: str, command: list[str], *options: str) -> dict:
+    r = subprocess.run([*_command(command), "--flat-playlist", *options, "-J", url], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=PLAYLIST_TIMEOUT_S)
+    if r.returncode != 0:
+        raise SourceError(f"yt-dlp : {(r.stderr or r.stdout).strip()[-500:]}")
+    return json.loads(r.stdout)
+
+
+def playlist_info(url: str, command: list[str]) -> dict | None:
+    """{id, title, entries: [{url, title, duration}], with_video} if the address is a playlist (or a
+    channel), None otherwise. Read without downloading anything. `with_video`: the address also designates
+    one video of the list (youtube.com/watch?v=…&list=…), which can be processed alone."""
+    d = _flat(url, command, "--yes-playlist")
+    if d.get("_type") != "playlist":
+        return None
+    entries = [{"url": e.get("url") or e.get("webpage_url"), "title": e.get("title") or e.get("id") or "?", "duration": e.get("duration")}
+               for e in d.get("entries") or [] if e and (e.get("url") or e.get("webpage_url"))]
+    if not entries:
+        return None
+    alone = _flat(url, command, "--no-playlist")
+    return {"id": d.get("id"), "title": d.get("title") or d.get("id") or "playlist", "entries": entries,
+            "with_video": alone.get("_type") != "playlist"}
+
+
+def folder_name(title: str, max_len: int = 100) -> str:
+    """Readable folder name (accents and spaces kept), without the characters Windows refuses."""
+    s = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', " ", title)
+    s = re.sub(r"\s+", " ", s).strip(" .")
+    return s[:max_len].rstrip(" .") or "playlist"
+
+
+def playlist_folder(output_dir: str | Path, info: dict) -> Path:
+    return Path(output_dir) / folder_name(info["title"])
+
+
+def download_playlist(info: dict, command: list[str], folder: Path, log=print, cancelled=lambda: False,
+                      progress=lambda done, total, title: None) -> tuple[list[Path], list[dict]]:
+    """Downloads the videos one by one into `folder`, numbered in the order of the list ("001 - title"). A video that
+    fails (private, removed) is skipped; one already there is not downloaded again, so running it again resumes.
+    Returns (files, failures [{title, url, error}])."""
+    folder.mkdir(parents=True, exist_ok=True)
+    entries = info["entries"]
+    width = max(3, len(str(len(entries))))
+    files, failures = [], []
+    for i, e in enumerate(entries, 1):
+        if cancelled():
+            break
+        progress(i - 1, len(entries), e["title"])
+        log(i18n.t("log.playlist_video", i=i, n=len(entries), title=e["title"]))
+        try:
+            files.append(download_youtube(e["url"], command, log, folder, f"{i:0{width}d} - {TITLE}"))
+        except (SourceError, OSError, subprocess.SubprocessError, ValueError) as err:
+            log(i18n.t("log.playlist_video_failed", title=e["title"], error=err))
+            failures.append({"title": e["title"], "url": e["url"], "error": str(err)})
+    progress(len(files) + len(failures), len(entries), "")
+    return files, failures

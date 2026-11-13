@@ -159,7 +159,7 @@ def prepare(r: Request, log=print, step=lambda name: None, cancelled=lambda: Fal
     # 1. Source
     step("source")
     if source.is_url(r.source):
-        video = source.download_youtube(r.source, cfg.get("youtube", {}).get("command", ["yt-dlp"]), log, folder=output_dir)
+        video = source.download_youtube(r.source, source.ytdlp_command(cfg), log, folder=source.download_dir(cfg, r.output_dir))
     else:
         video = Path(r.source).expanduser().resolve()
         if not video.is_file():

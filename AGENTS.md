@@ -27,8 +27,10 @@ machine already has.
 - `ffmpeg` and `ffprobe` must be in the `PATH` (`ffmpeg -version`). If they are missing, propose the usual way and
   ask first: `winget install Gyan.FFmpeg` (Windows), `brew install ffmpeg` (macOS), `sudo apt install ffmpeg`
   (Debian, Ubuntu).
-- `yt-dlp` is needed only for YouTube addresses. Ask whether the user wants them; if so, propose
-  `winget install yt-dlp.yt-dlp`, `brew install yt-dlp` or `pipx install yt-dlp`.
+- `yt-dlp` is needed only for video and playlist addresses (YouTube; other sites it supports may work). Ask whether the
+  user wants them; if so, propose `winget install yt-dlp.yt-dlp`, `brew install yt-dlp` or `pipx install yt-dlp`.
+  For YouTube, recent versions also need a JavaScript runtime (Deno, or Node 22 or later given with
+  `--js-runtimes node:<path>` in the yt-dlp configuration file): check with `yt-dlp --simulate <a short public video>`.
 - The port: 4420. If something already answers on `http://127.0.0.1:4420/`, ask what it is before going on.
 - Install folder: ask, and default to `~/auto-generate-subtitles`.
 - **The power of the machine**, read-only, for the recommendations of steps 3 and 4: processor and number of
@@ -144,8 +146,10 @@ Then, if the user agrees, subtitle a short video of theirs (a minute is enough) 
 
 - The page: `.venv/bin/python -m subtitles.web --open`. It listens on `127.0.0.1` only and stops by itself after
   60 minutes without activity.
-- The command line: `.venv/bin/python -m subtitles "<video, folder or YouTube address>"`; a folder becomes a batch
-  that resumes after an interruption.
+- The command line: `.venv/bin/python -m subtitles "<video, folder, video or playlist address>"`; a folder or a
+  playlist becomes a batch that resumes after an interruption.
+- Downloads (Settings): the folder of the downloaded videos, the maximum quality (1080p by default) and other yt-dlp
+  options, such as `--cookies-from-browser firefox` for videos that need an account.
 - Where the settings are, and that **Settings** on the page changes them later.
 - Offer, without insisting, a shortcut to start the page (a desktop shortcut, a shell alias): create it only if
   the user wants one.

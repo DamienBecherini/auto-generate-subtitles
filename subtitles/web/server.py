@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .. import __version__, cleanup, config, folder, i18n, language, local_transcription, source, steps, transcription, translation
 from .idle import IdleWatch, is_activity
 from .manager import Manager
+from .playlist import PlaylistDownload
 
 log = logging.getLogger("subtitles.web")
 STATIC = Path(__file__).resolve().parent / "static"
@@ -31,6 +32,18 @@ _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 manager = Manager()
 _imposed_timeout: float | None = None   # --idle of the command line
 current_scan: folder.FolderScan | None = None   # inventory of the folder in progress or displayed (one at a time)
+current_download: PlaylistDownload | None = None   # download of a playlist in progress or displayed (one at a time)
+
+
+def busy() -> bool:
+    """Work in progress: tasks and batches, or the download of a playlist (the service must not stop under it)."""
+    return manager.busy() or bool(current_download and current_download.working())
+
+
+def activity() -> str:
+    if current_download and current_download.working() and not manager.busy():
+        return i18n.t("activity.playlist", done=current_download.done, n=current_download.total)
+    return manager.activity()
 
 
 def idle_timeout_s() -> float:
@@ -42,14 +55,14 @@ def idle_timeout_s() -> float:
         return 0                        # unreadable configuration: do not stop
 
 
-idle = IdleWatch(idle_timeout_s, manager.busy)
+idle = IdleWatch(idle_timeout_s, lambda: busy())
 
 
 def health() -> dict:
     """Answer of GET /api/health, following the "local service" contract v2."""
     remaining = idle.remaining_s()
     return {"state": "ready", "contract": 2, "service": "subtitles", "version": __version__,
-            "busy": manager.busy(), "activity": manager.activity(), "remaining_work_s": manager.remaining_s(),
+            "busy": busy(), "activity": activity(), "remaining_work_s": manager.remaining_s(),
             "idle": {"timeout_s": idle_timeout_s(), "remaining_s": None if remaining is None else round(remaining, 1)}}
 
 
@@ -623,18 +636,64 @@ def test_an_engine(req):
         return 200, {"ok": False, "detail": str(e)}
 
 
+def _ytdlp(cfg: dict) -> list[str]:
+    return source.ytdlp_command(cfg)
+
+
 @route("POST", "/api/youtube")
 def youtube(req):
-    """{url, output_dir?}: title, duration and target file, without downloading."""
+    """{url, output_dir?}: title, duration and target file, without downloading (YouTube; other sites of yt-dlp may work).
+    A playlist: "playlist" {title, count, duration, folder}; then "video" only if the address also designates one
+    video of the list (alone: "Start"; the whole list: POST /api/playlist)."""
     d = req.json()
     cfg = config.load()
+    url, output_dir = d.get("url", ""), source.download_dir(cfg, d.get("output_dir"))
     try:
-        i = source.youtube_info(d.get("url", ""), cfg.get("youtube", {}).get("command", ["yt-dlp"]),
-                                Path(d.get("output_dir") or cfg["output_dir"]))
-    except source.SourceError as e:
+        p = source.playlist_info(url, _ytdlp(cfg))
+        answer = {"ok": True}
+        if p:
+            known = [e["duration"] for e in p["entries"] if e.get("duration")]
+            answer["playlist"] = {"title": p["title"], "count": len(p["entries"]), "duration": sum(known) if known else None,
+                                  "folder": str(source.playlist_folder(output_dir, p)).replace("\\", "/")}
+        if not p or p["with_video"]:
+            i = source.youtube_info(url, _ytdlp(cfg), output_dir)
+            answer.update(title=i.get("title"), duration=i.get("duration"), video=str(i["video"]), exists=i["video"].exists())
+    except (source.SourceError, subprocess.SubprocessError, ValueError) as e:
         return 200, {"ok": False, "detail": str(e)}
-    return 200, {"ok": True, "title": i.get("title"), "duration": i.get("duration"), "video": str(i["video"]),
-                 "exists": i["video"].exists()}
+    return 200, answer
+
+
+@route("POST", "/api/playlist")
+def download_playlist(req):
+    """{url, output_dir?}: downloads the whole playlist in the background into <output folder>/<playlist title>
+    → {id, state…}; once "done", the page opens this folder as a source folder (POST /api/folder)."""
+    global current_download
+    d = req.json()
+    cfg = config.load()
+    url = (d.get("url") or "").strip()
+    if not source.is_url(url):
+        raise RequestError(400, i18n.t("err.not_a_playlist"))
+    if current_download and current_download.working():
+        raise RequestError(409, i18n.t("err.playlist_running"))
+    current_download = PlaylistDownload(url, _ytdlp(cfg), source.download_dir(cfg, d.get("output_dir")))
+    current_download.start()
+    return 202, current_download.to_dict()
+
+
+@route("GET", "/api/playlist/{id}")
+def get_playlist(req, id):
+    """Progress: state (listing, downloading, done, cancelled, error), done/total, current title, folder, failures."""
+    if not current_download or current_download.id != id:
+        raise RequestError(404, i18n.t("err.unknown_download"))
+    return 200, current_download.to_dict()
+
+
+@route("POST", "/api/playlist/{id}/cancel")
+def cancel_playlist(req, id):
+    """Stops after the video being downloaded; those already there stay in the folder."""
+    if current_download and current_download.id == id:
+        current_download.cancel()
+    return 200, {"ok": True}
 
 
 class Handler(BaseHTTPRequestHandler):

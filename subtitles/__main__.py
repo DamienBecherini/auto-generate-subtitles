@@ -10,6 +10,7 @@ Web interface: python -m subtitles.web (see README). Settings come from config.t
 %LOCALAPPDATA%/subtitles/config.json (written by the web interface); the options below take precedence.
 """
 import argparse
+import subprocess
 import sys
 import time
 
@@ -20,7 +21,30 @@ def log(msg: str):
     print(time.strftime("[%H:%M:%S] ") + msg, flush=True)
 
 
+def download_playlist(url: str, cfg: dict, output_dir: str | None, whole: bool):
+    """Folder where the playlist was downloaded, to process as a batch; None if the address is one video to process
+    alone (not a playlist, or one video of a list without --playlist)."""
+    command = source.ytdlp_command(cfg)
+    info = source.playlist_info(url, command)
+    if info is None:
+        return None
+    if info["with_video"] and not whole:
+        log(i18n.t("log.cli_video_of_playlist", n=len(info["entries"])))
+        return None
+    folder = source.playlist_folder(source.download_dir(cfg, output_dir), info)
+    log(i18n.t("log.cli_playlist", title=info["title"], n=len(info["entries"]), folder=folder))
+    files, failures = source.download_playlist(info, command, folder, log)
+    if failures:
+        log(i18n.t("log.playlist_failures", n=len(failures)))
+    if not files:
+        raise source.SourceError(i18n.t("err.playlist_nothing", folder=folder))
+    return folder
+
+
 def main(argv=None) -> int:
+    for stream in (sys.stdout, sys.stderr):     # output redirected on Windows (cp1252): "→" must not stop the work
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--lang")
     chosen = pre.parse_known_args(argv)[0].lang
@@ -40,6 +64,7 @@ def main(argv=None) -> int:
     p.add_argument("--until", choices=steps.STOPS[1:], help=i18n.t("cli.until"))
     p.add_argument("--new-batch", action="store_true", help=i18n.t("cli.new_batch"))
     p.add_argument("--no-subfolders", action="store_true", help=i18n.t("cli.no_subfolders"))
+    p.add_argument("--playlist", action="store_true", help=i18n.t("cli.playlist"))
     a = p.parse_args(argv)
 
     if a.list:
@@ -52,18 +77,22 @@ def main(argv=None) -> int:
         return 0
     if not a.source:
         p.error(i18n.t("cli.missing_source"))
+    batch = dict(transcription=a.transcription, translator=a.translator, spoken_language=a.language,
+                 languages=a.languages.split(",") if a.languages else None, output_dir=a.output_dir, redo=a.redo, stop=a.until,
+                 new=a.new_batch, recursive=not a.no_subfolders)
     try:
-        if not source.is_url(a.source) and batch_cli.is_batch(a.source):
-            return batch_cli.run(a.source, cfg, log, transcription=a.transcription, translator=a.translator,
-                                 spoken_language=a.language, languages=a.languages.split(",") if a.languages else None,
-                                 output_dir=a.output_dir, redo=a.redo, stop=a.until, new=a.new_batch,
-                                 recursive=not a.no_subfolders)
+        if source.is_url(a.source):
+            folder = download_playlist(a.source, cfg, a.output_dir, a.playlist)
+            if folder is not None:
+                return batch_cli.run(str(folder), cfg, log, **batch)
+        elif batch_cli.is_batch(a.source):
+            return batch_cli.run(a.source, cfg, log, **batch)
         r = pipeline.Request(a.source, cfg, a.transcription, a.translator, a.language, a.output_dir, a.redo,
                              languages=a.languages.split(",") if a.languages else None, cleanup=not a.no_cleanup)
         pipeline.run(r, log)
         return 0
     except (source.SourceError, transcription.TranscriptionError, translation.TranslationError, config.ConfigError,
-            local_transcription.LocalServerError, dubbing.DubbingError) as e:
+            local_transcription.LocalServerError, dubbing.DubbingError, subprocess.SubprocessError) as e:
         log(i18n.t("log.error", error=e))
         return 1
     except KeyboardInterrupt:

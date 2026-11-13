@@ -2,7 +2,7 @@
 
 # auto-generate-subtitles
 
-**Des sous-titres pour une vidéo YouTube, un fichier ou un dossier entier, calés sur la parole, dans les langues voulues.**
+**Des sous-titres pour une vidéo ou une playlist YouTube, un fichier ou un dossier entier, calés sur la parole, dans les langues voulues.**
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org)
 [![No dependencies](https://img.shields.io/badge/dependencies-standard%20library%20only-2EA043)](pyproject.toml)
@@ -18,7 +18,7 @@
 
 ---
 
-Sous-titres d'une vidéo YouTube ou d'un fichier vidéo dans sa langue et dans les langues voulues. La transcription passe par un serveur compatible OpenAI que vous fournissez ; la traduction par une IA locale, l'API Claude, toute API compatible OpenAI, ou rien. Les fichiers `.srt` et `.vtt` sont calés sur la parole. Interface web locale ou ligne de commande.
+Sous-titres d'une vidéo YouTube (d'autres [sites pris en charge par yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) peuvent fonctionner aussi) ou d'un fichier vidéo dans sa langue et dans les langues voulues. La transcription passe par un serveur compatible OpenAI que vous fournissez ; la traduction par une IA locale, l'API Claude, toute API compatible OpenAI, ou rien. Les fichiers `.srt` et `.vtt` sont calés sur la parole. Interface web locale ou ligne de commande.
 
 ![Un dossier de vidéos sous-titré en lot : progression, étapes et journal en direct](docs/images/fr/batch-running-dark.png)
 
@@ -73,9 +73,14 @@ Pour traduire, ajoutez un traducteur dans **Réglages**. Pour l'API Claude, lanc
 
 La page :
 
-- **Adresse YouTube ou chemin** + **Démarrer** (rien ne part avant ce clic). Une adresse affiche d'abord le titre, la durée et le fichier de
-  destination ; la vidéo est téléchargée par yt-dlp **dans le dossier de
-  sortie**, où elle reste.
+- **Adresse d'une vidéo ou chemin** + **Démarrer** (rien ne part avant ce clic). Une adresse YouTube
+  affiche d'abord le titre, la durée et le fichier de destination ; la vidéo est téléchargée par yt-dlp
+  **dans le dossier de téléchargement** (le dossier de sortie par défaut), où elle reste.
+- **Playlist** (playlist ou chaîne YouTube) : l'aperçu annonce le nombre de vidéos, la durée totale et
+  le dossier, avec **Télécharger la playlist**. Les vidéos sont téléchargées une à une dans un dossier au nom de la
+  playlist, numérotées dans l'ordre de la liste (`001 - titre.mp4`), avec une barre de progression et **Annuler** ;
+  une vidéo impossible à télécharger (privée, supprimée) est sautée et signalée. Le dossier s'ouvre ensuite comme un
+  dossier source (sélection, langue par vidéo, lot). Relancer reprend : les vidéos déjà là ne sont pas retéléchargées.
 - **Glisser-déposer** une vidéo : le navigateur ne donne pas le chemin du fichier, il est donc **copié** dans le
   dossier de sortie (barre de progression) et son chemin remplit le champ. **Parcourir…** ouvre la boîte de dialogue
   du système (PowerShell sous Windows, `osascript` sur macOS, `zenity` ou `kdialog` sous Linux ; sans eux, saisir le chemin) et remplit le champ avec le fichier **là où il est** (les `.srt` sont posés à côté de lui).
@@ -117,7 +122,9 @@ La page :
   pour Claude) ou **Terminer sans traduire**. Le journal donne ensuite les jetons réellement consommés et leur coût.
 - Suivi de la tâche : étapes, journal en direct, **Annuler** (prend effet à la fin de l'étape en cours), puis
   boutons **Ouvrir le dossier** et **Ouvrir la vidéo**. Historique des 50 dernières tâches (`history.json`, à côté de `config.json`) ; le journal complet de chaque tâche est écrit à sa fin dans `.work/<nom>/log-<date>-<id>.txt` et s'ouvre en accordéon dans sa ligne d'historique (bouton Journal), sans quitter le suivi de la tâche en cours.
-- **Réglages** : dossier de sortie, langue parlée par défaut, commande yt-dlp, taille des lots de traduction, **nettoyage
+- **Réglages** : dossier de sortie, langue parlée par défaut, **téléchargements** (dossier des vidéos téléchargées,
+  qualité maximale, 1080p par défaut avec un son de 128 kb/s au plus, autres options de yt-dlp comme
+  `--cookies-from-browser firefox`, commande yt-dlp), taille des lots de traduction, **nettoyage
   du dossier de travail** (voir plus bas, avec le bouton **Nettoyer maintenant** et la taille occupée par catégorie),
   mise en forme des sous-titres, et les listes de **serveurs de transcription** et de **traducteurs** (ajouter,
   modifier, supprimer, **Tester**, choisir l'actif). Enregistrés dans `config.json` du dossier utilisateur (`%LOCALAPPDATA%\subtitles` sous Windows, `$XDG_CONFIG_HOME/subtitles` ou `~/.config/subtitles` ailleurs), qui recouvre
@@ -147,8 +154,10 @@ les valeurs par défaut de `subtitles/config.toml` : ce dernier ne contient que 
 
 ## Chaîne
 
-1. **Source.** Adresse : `yt-dlp` (commande réglable, y compris au travers de WSL) avec `-o` remplacé par le dossier de sortie ; une
-   vidéo déjà présente n'est pas retéléchargée. Puis, comme pour un fichier, `ffmpeg` extrait la piste audio
+1. **Source.** Adresse : `yt-dlp` (commande réglable, y compris au travers de WSL) avec `-o` remplacé par le dossier de
+   téléchargement, et le format choisi dans les réglages (`-f`, `--merge-output-format`, nouvelles tentatives) ; le
+   fichier de configuration de yt-dlp reste lu pour le reste (cookies, moteur JavaScript…). Une vidéo déjà présente
+   n'est pas retéléchargée. Puis, comme pour un fichier, `ffmpeg` extrait la piste audio
    (copie du flux, sans réencodage quand le conteneur le permet) dans `<output_dir>/.work/<nom>/`.
 2. **Transcription.** L'audio part au serveur de transcription (`POST /v1/audio/transcriptions`,
    `response_format=verbose_json`) qui renvoie chaque **mot avec son début et sa fin** sur la ligne de temps de la
@@ -210,6 +219,7 @@ Les noms des réglages, les options de la ligne de commande et les champs de l'A
 
 ```
 .venv/bin/python -m subtitles "https://www.youtube.com/watch?v=…"
+.venv/bin/python -m subtitles "https://www.youtube.com/playlist?list=…"   # toute la playlist, en lot
 .venv/bin/python -m subtitles "ma video.mp4" --transcription local --translator claude
 .venv/bin/python -m subtitles "D:/Séries/Saison 1"   # toutes les vidéos du dossier, en lot
 .venv/bin/python -m subtitles --list          # moteurs configurés
@@ -225,6 +235,10 @@ translation|dubbing|mux` (dernière étape, la traduction par défaut), `--new-b
 existant et refait l'inventaire du dossier), `--no-subfolders`. On peut aussi donner un fichier `.batch.json`. Code de
 sortie : 0 si toutes les vidéos sont faites, 1 sinon. Ne pas mener le même lot en même temps dans l'interface web.
 
+Une adresse de playlist est téléchargée dans un dossier à son nom (dans le dossier de téléchargement), puis ce dossier
+est traité comme un lot ; relancer la commande reprend le téléchargement puis le lot. L'adresse d'une vidéo d'une
+playlist (`watch?v=…&list=…`) ne traite que cette vidéo, ou toute la liste avec `--playlist`.
+
 Vérifier dans VLC : ouvrir la vidéo, le `.fr.srt` du même nom se charge seul (sinon Sous-titres > Ajouter un
 fichier). Regarder le début, le milieu et la fin : un décalage qui grandirait au fil de la vidéo signalerait un
 problème de cadence (les temps viennent du modèle, pas d'une estimation).
@@ -232,14 +246,16 @@ problème de cadence (les temps viennent du modèle, pas d'une estimation).
 ## API
 
 L'interface web s'appuie sur une API JSON locale, sur `http://127.0.0.1:4420`, utilisable aussi par des scripts. Elle n'a
-pas d'authentification : elle n'écoute que sur la machine elle-même. Les messages d'erreur suivent l'en-tête `X-Language` (`fr`, `en`). La liste complète est en tête de `subtitles/web/server.py`.
+pas d'authentification : elle n'écoute que sur la machine elle-même, et refuse les requêtes envoyées par d'autres sites ouverts dans le navigateur (en-têtes `Origin` et `Host` vérifiés ; `curl` et les scripts sont acceptés). Les messages d'erreur suivent l'en-tête `X-Language` (`fr`, `en`). Chaque route est une fonction marquée `@route` dans `subtitles/web/server.py`, avec les champs attendus dans sa docstring.
 
 | Requête | Rôle |
 | --- | --- |
-| `POST /api/tasks` `{source, languages?, translator?, transcription?, output_dir?, pause?}` | une vidéo ou une adresse YouTube → tâche |
+| `POST /api/tasks` `{source, languages?, translator?, transcription?, output_dir?, pause?}` | une vidéo (fichier ou adresse) → tâche |
 | `GET /api/tasks/<id>?since=N` | état, étape en cours, lignes du journal à partir de N |
 | `POST /api/tasks/<id>/translate` `{translator?, languages?}` | suite d'une tâche en pause avant la traduction |
 | `POST /api/folder` `{path}` puis `GET /api/folder/<id>?videos=1` | inventaire des vidéos d'un dossier |
+| `POST /api/youtube` `{url}` | titre et durée d'une adresse de vidéo, ou la playlist qu'elle désigne, sans rien télécharger |
+| `POST /api/playlist` `{url}` puis `GET /api/playlist/<id>` | télécharger toute une playlist dans un dossier, à ouvrir ensuite avec `/api/folder` |
 | `POST /api/batches` `{root, videos: [{path, language}], languages?, translator?, pause?, stop?}` | lancer un lot |
 | `GET /api/batches/<id>` | avancement : `state`, `phase`, `step` (étape de la vidéo en cours), comptes, temps restant |
 | `POST /api/batches/load` `{file}` puis `POST /api/batches/<id>/resume` | reprendre d'après un `subtitles.batch.json` |

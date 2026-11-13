@@ -57,6 +57,18 @@
       <div id="drop-progress" class="progress" hidden><div class="bar"></div><span class="text"></span></div>
     </div>
 
+    <div id="playlist" class="sub-card" hidden>
+      <div class="head">
+        <h2 data-i18n="ui.playlist.title"></h2>
+      </div>
+      <div class="help" id="playlist-title"></div>
+      <div class="row">
+        <div id="playlist-progress" class="progress"><div class="bar"></div><span class="text"></span></div>
+        <button type="button" class="secondary small" id="btn-playlist-cancel" data-i18n="ui.cancel" data-i18n-title="ui.playlist.cancel"></button>
+      </div>
+      <div class="help" id="playlist-message"></div>
+    </div>
+
     <div id="folder" class="sub-card" hidden>
       <div class="head">
         <h2 data-i18n="ui.folder.title"></h2>
@@ -67,6 +79,7 @@
         <button type="button" class="close" id="btn-close-folder" data-i18n-aria-label="ui.close">×</button>
     </div>
       <div class="help" id="folder-root"></div>
+      <div class="help" id="folder-note" hidden></div>
       <div id="folder-loading" class="row" hidden>
         <div id="folder-progress" class="progress"><div class="bar"></div><span class="text"></span></div>
         <button type="button" class="secondary small" id="btn-folder-cancel" data-i18n="ui.cancel"></button>
@@ -244,9 +257,20 @@
     <div class="grid">
       <label><span data-i18n="ui.output_folder"></span> <input type="text" id="cfg-output-dir"></label>
       <label><span data-i18n="ui.cfg.default_language"></span> <input type="text" id="cfg-language" data-i18n-placeholder="ui.cfg.default_language_placeholder"></label>
-      <label><span data-i18n="ui.cfg.ytdlp"></span> <input type="text" id="cfg-youtube"></label>
       <label><span data-i18n="ui.cfg.chunk"></span> <input type="number" id="cfg-chunk" min="1" max="100"></label>
       <label><span data-i18n="ui.cfg.idle"></span> <input type="number" id="cfg-idle" min="0" max="10080"></label>
+    </div>
+
+    <h3><span data-i18n="ui.cfg.downloads"></span> <span class="help" data-i18n="ui.cfg.downloads_help"></span></h3>
+    <div class="grid">
+      <label><span data-i18n="ui.cfg.download_dir"></span> <input type="text" id="cfg-download-dir" data-i18n-placeholder="ui.cfg.download_dir_placeholder"></label>
+      <label><span data-i18n="ui.cfg.max_height"></span>
+        <select id="cfg-max-height">
+          <option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option>
+          <option value="2160">2160p (4K)</option><option value="0" data-i18n="ui.cfg.no_limit"></option>
+        </select></label>
+      <label><span data-i18n="ui.cfg.ytdlp_extra"></span> <input type="text" id="cfg-ytdlp-extra" spellcheck="false" data-i18n-placeholder="ui.cfg.ytdlp_extra_placeholder"></label>
+      <label><span data-i18n="ui.cfg.ytdlp"></span> <input type="text" id="cfg-youtube" spellcheck="false"></label>
     </div>
 
     <h3><span data-i18n="ui.cfg.servers"></span> <button type="button" class="secondary small" id="btn-add-transcription" data-i18n="ui.add"></button></h3>

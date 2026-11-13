@@ -281,7 +281,8 @@ function pageDestination() { return { next_to_video: $("#opt-dest-next-to").chec
 function updateOutputZone() {
   const ticked = $("#opt-dest-output").checked;
   $("#output-zone").hidden = !ticked;
-  $("#output-reminder").textContent = ticked ? "" : T("ui.dest.reminder", { path: $("#opt-output-dir").value.trim() || T("ui.dest.the_output_folder") });
+  const path = $("#opt-output-dir").value.trim() || T("ui.dest.the_output_folder");
+  $("#output-reminder").textContent = ticked ? "" : T(config?.youtube?.download_dir ? "ui.dest.reminder_work" : "ui.dest.reminder", { path });
 }
 $("#opt-dest-output").addEventListener("change", updateOutputZone);
 $("#opt-output-dir").addEventListener("input", updateOutputZone);
@@ -324,6 +325,8 @@ async function savePageOptions() {
 
 async function start(source) {
   if (!source) return;
+  const p = lastPreview?.url === source ? lastPreview.info : null;
+  if (p?.playlist && !p.title) return downloadPlaylist(source);     // address of a whole playlist: no single video to start
   if (!$("#opt-dest-next-to").checked && !$("#opt-dest-output").checked
       && !confirm(T("ui.confirm_no_destination"))) return;
   $("#btn-go").disabled = true;
@@ -343,18 +346,78 @@ async function start(source) {
 $("#form-source").addEventListener("submit", (ev) => { ev.preventDefault(); start($("#source").value.trim()); });
 
 let previewDelay = null;
+let lastPreview = null;          // {url, info} of the address read for the preview (video and/or playlist)
 $("#source").addEventListener("input", () => {
   clearTimeout(previewDelay);
   const v = $("#source").value.trim();
-  if (!/^https?:\/\//.test(v)) { $("#preview").hidden = true; return; }
+  if (!/^https?:\/\//.test(v)) { $("#preview").hidden = true; lastPreview = null; return; }
   previewDelay = setTimeout(async () => {
     $("#preview").hidden = false; $("#preview").textContent = T("ui.preview.reading");
     try {
-      const i = await api("POST", "/api/youtube", { url: v, output_dir: $("#opt-output-dir").value.trim() });
-      $("#preview").textContent = i.ok ? `${i.title} (${formatDuration(i.duration)})${i.exists ? T("ui.preview.downloaded") : ""} → ${i.video}` : "yt-dlp : " + i.detail;
+      const info = await api("POST", "/api/youtube", { url: v, output_dir: $("#opt-output-dir").value.trim() });
+      if ($("#source").value.trim() !== v) return;          // the address changed in the meantime
+      lastPreview = { url: v, info };
+      showPreview();
     } catch (err) { $("#preview").textContent = err.message; }
   }, 600);
 });
+
+/* The video of the address, and the playlist it belongs to with a button to download it all. */
+function showPreview() {
+  const z = $("#preview"), i = lastPreview?.info;
+  if (!i) return;
+  if (!i.ok) { z.textContent = "yt-dlp : " + i.detail; return; }
+  z.replaceChildren();
+  if (i.title) {
+    const d = document.createElement("div");
+    d.textContent = `${i.title} (${formatDuration(i.duration)})${i.exists ? T("ui.preview.downloaded") : ""} → ${i.video}`;
+    z.appendChild(d);
+  }
+  if (i.playlist) {
+    const p = i.playlist, d = document.createElement("div");
+    d.textContent = T("ui.preview.playlist", { title: p.title, n: p.count, duration: p.duration ? ", " + formatDuration(p.duration) : "", folder: p.folder }) + " ";
+    d.appendChild(button(T("ui.playlist.download"), async () => downloadPlaylist(lastPreview.url)));
+    z.appendChild(d);
+  }
+}
+
+// --- Playlist: downloaded into a folder, which then opens like any source folder ----------------------------------
+
+let playlistId = null, lastPlaylist = null;
+
+const playlistFailures = (d) => d?.failures?.length ? T("ui.playlist.failed", { n: d.failures.length, titles: d.failures.map((f) => f.title).join(", ") }) : "";
+
+function showPlaylistProgress(d) {
+  lastPlaylist = d;
+  const bar = $("#playlist-progress"), listing = d.state === "listing";
+  $("#playlist-title").textContent = d.title ? `${d.title} → ${d.folder}` : d.url;
+  bar.classList.toggle("indeterminate", listing);
+  bar.querySelector(".bar").style.width = listing ? "" : (100 * d.done / Math.max(1, d.total)).toFixed(0) + "%";
+  bar.querySelector(".text").textContent = listing ? T("ui.playlist.listing") : T("ui.playlist.downloading", { done: Math.min(d.done + 1, d.total), n: d.total, title: d.current });
+  $("#btn-playlist-cancel").hidden = !["listing", "downloading"].includes(d.state);
+  $("#playlist-message").textContent = d.state === "error" ? d.error : d.state === "cancelled" ? T("ui.playlist.cancelled", { folder: d.folder }) : playlistFailures(d);
+}
+
+async function downloadPlaylist(url) {
+  closeFolder();
+  $("#preview").hidden = true;
+  $("#playlist").hidden = false; $("#playlist-message").textContent = "";
+  let d;
+  try { d = await api("POST", "/api/playlist", { url, output_dir: $("#opt-output-dir").value.trim() }); }
+  catch (err) { $("#playlist-title").textContent = url; $("#playlist-message").textContent = err.message; return; }
+  playlistId = d.id;
+  while (playlistId === d.id) {
+    showPlaylistProgress(d);
+    if (!["listing", "downloading"].includes(d.state)) break;
+    await new Promise((end) => setTimeout(end, 1000));
+    try { d = await api("GET", `/api/playlist/${d.id}`); }
+    catch (err) { $("#playlist-message").textContent = err.message; return; }
+  }
+  if (playlistId !== d.id) return;
+  playlistId = null;
+  if (d.state === "done") { $("#playlist").hidden = true; openFolder(d.folder, d); }
+}
+$("#btn-playlist-cancel").addEventListener("click", () => { if (playlistId) api("POST", `/api/playlist/${playlistId}/cancel`, {}).catch(() => {}); });
 
 /* System dialog box; if none is available, the message invites to type the path in the field. */
 async function choosePath(type, startDir = "") {
@@ -417,9 +480,13 @@ $("#btn-close-folder").addEventListener("click", closeFolder);
 
 let scanId = null;      // inventory of the folder in progress
 
-async function openFolder(path) {
+let folderPlaylist = null;      // playlist the open folder comes from (videos that could not be downloaded)
+
+async function openFolder(path, playlist = null) {
   $("#folder").hidden = false; $("#folder-actions").hidden = false; $("#btn-go").hidden = true;   // Start the batch replaces Start
   inventory = null;
+  folderPlaylist = playlist;
+  $("#folder-note").textContent = playlistFailures(playlist); $("#folder-note").hidden = !playlistFailures(playlist);
   $("#folder-root").textContent = path;
   $("#folder-tree").innerHTML = ""; $("#folder-summary").textContent = ""; $("#folder-existing-batch").hidden = true;
   $("#btn-start-batch").disabled = true;
@@ -1326,7 +1393,13 @@ $("#btn-cancel-settings").addEventListener("click", () => dlg.close());
 function fillSettings() {
   const c = config, s = c.subtitles || {};
   $("#cfg-output-dir").value = c.output_dir || ""; $("#cfg-language").value = c.language || "";
-  $("#cfg-youtube").value = JSON.stringify((c.youtube || {}).command || ["yt-dlp"]);
+  const y = c.youtube || {};
+  $("#cfg-youtube").value = JSON.stringify(y.command || ["yt-dlp"]);
+  $("#cfg-download-dir").value = y.download_dir || "";
+  const height = String(y.max_height ?? 1080), heights = $("#cfg-max-height");
+  if (![...heights.options].some((o) => o.value === height)) heights.add(new Option(`${height}p`, height));
+  heights.value = height;
+  $("#cfg-ytdlp-extra").value = (y.extra_args || []).map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
   $("#cfg-chunk").value = (c.translation || {}).chunk_size || 25;
   $("#cfg-idle").value = (c.web || {}).idle_min ?? 60;
   $("#cfg-cpl").value = s.chars_per_line ?? 42; $("#cfg-lines").value = s.lines ?? 2; $("#cfg-dmax").value = s.max_duration ?? 6;
@@ -1365,6 +1438,11 @@ function engineRow(kind, m, active) {
   return el;
 }
 
+/* Options typed like on a command line: words separated by spaces, "quotes" around a word that holds some. */
+function splitArguments(text) {
+  return (text.match(/"[^"]*"|'[^']*'|\S+/g) || []).map((a) => (/^(["']).*\1$/s.test(a) ? a.slice(1, -1) : a));
+}
+
 function readEngine(el) {
   const m = {};
   for (const field of el.querySelectorAll("[data-field]")) {
@@ -1385,7 +1463,8 @@ $("#btn-save-settings").addEventListener("click", async () => {
   try {
     const c = JSON.parse(JSON.stringify(config));
     c.output_dir = $("#cfg-output-dir").value.trim(); c.language = $("#cfg-language").value.trim();
-    c.youtube = { ...(c.youtube || {}), command: JSON.parse($("#cfg-youtube").value) };
+    c.youtube = { ...(c.youtube || {}), command: JSON.parse($("#cfg-youtube").value), download_dir: $("#cfg-download-dir").value.trim(),
+                  max_height: Number($("#cfg-max-height").value) || 0, extra_args: splitArguments($("#cfg-ytdlp-extra").value) };
     c.translation = { ...(c.translation || {}), chunk_size: Number($("#cfg-chunk").value) || 25 };
     c.web = { ...(c.web || {}), idle_min: Number($("#cfg-idle").value) || 0 };
     c.subtitles = { chars_per_line: Number($("#cfg-cpl").value), lines: Number($("#cfg-lines").value), max_duration: Number($("#cfg-dmax").value),
@@ -1484,6 +1563,9 @@ function retranslate() {
     if (zone.childElementCount) fillLanguages(zone, readLanguages(zone));
   showTranslatorSettings(true); updateOutputZone(); updateGoal();
   $("#opt-pause-text").textContent = T($("#folder").hidden ? "ui.pause_option" : "ui.pause_option_batch");
+  if (!$("#preview").hidden && lastPreview) showPreview();
+  if (!$("#playlist").hidden && lastPlaylist) showPlaylistProgress(lastPlaylist);
+  if (folderPlaylist) $("#folder-note").textContent = playlistFailures(folderPlaylist);
   if (inventory) {
     showFolderHeader(inventory); updateFoldButton(); updateFolderSummary();
     for (const s of document.querySelectorAll("select[data-role=language][data-track]")) s.title = T("ui.folder.track_tag", { code: s.dataset.track });

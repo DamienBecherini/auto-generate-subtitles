@@ -163,3 +163,15 @@ def test_the_page_itself_and_other_clients_are_accepted(base):
     port = url.rsplit(":", 1)[1]
     for headers in ({"Origin": url}, {"Origin": f"http://localhost:{port}", "Host": f"localhost:{port}"}, {}):
         assert js(url + "/api/tasks/ab12/cancel", "POST", {}, headers=headers) == (200, {"ok": False}), headers
+
+
+def test_playlist_routes(base, monkeypatch):
+    url, _ = base
+    assert js(url + "/api/playlist", "POST", {"url": "not an address"})[0] == 400
+    assert js(url + "/api/playlist/ab12")[0] == 404
+    assert js(url + "/api/playlist/ab12/cancel", "POST", {}) == (200, {"ok": True})
+    entries = [{"url": "https://v.example/a", "title": "A", "duration": 60}, {"url": "https://v.example/b", "title": "B", "duration": None}]
+    monkeypatch.setattr(server.source, "playlist_info", lambda *_a: {"id": "PL", "title": "Course: 1", "entries": entries, "with_video": False})
+    code, d = js(url + "/api/youtube", "POST", {"url": "https://v.example/list"})
+    assert code == 200 and d["ok"] and "title" not in d
+    assert d["playlist"]["count"] == 2 and d["playlist"]["duration"] == 60 and d["playlist"]["folder"].endswith("/Course 1")

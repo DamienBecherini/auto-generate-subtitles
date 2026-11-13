@@ -2,7 +2,7 @@
 
 # auto-generate-subtitles
 
-**Subtitles for a YouTube video, a file or a whole folder, timed on the actual speech, in the languages you want.**
+**Subtitles for a YouTube video or playlist, a file or a whole folder, timed on the actual speech, in the languages you want.**
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org)
 [![No dependencies](https://img.shields.io/badge/dependencies-standard%20library%20only-2EA043)](pyproject.toml)
@@ -18,13 +18,13 @@
 
 ---
 
-Subtitles for a YouTube video or a video file, in its own language and in the languages you want. You bring the transcription server; translation runs on a local LLM, the Claude API, any OpenAI-compatible API, or not at all. Output is `.srt` and `.vtt` files timed on the actual speech.
+Subtitles for a YouTube video (other [sites yt-dlp supports](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) may work too) or a video file, in its own language and in the languages you want. You bring the transcription server; translation runs on a local LLM, the Claude API, any OpenAI-compatible API, or not at all. Output is `.srt` and `.vtt` files timed on the actual speech.
 
 ![A folder of videos subtitled in a batch: progress, steps and live log](docs/images/en/batch-running-dark.png)
 
 ## What it does
 
-- **One video or a whole folder.** A folder becomes a batch you can pause, resume after a power cut, and retry video by video.
+- **One video, a playlist or a whole folder.** A folder becomes a batch you can pause, resume after a power cut, and retry video by video. A playlist is downloaded into a folder of its own, then processed the same way.
 - **Cost before spending.** With a paid translator, the batch stops after transcription and shows the estimated tokens and price for each model.
 - **No retyped work.** Each step is skipped when its result already exists: changing a language or the layout does not transcribe again.
 - **Web page or command line.** The page shows steps, live log and remaining time. It runs on your machine and listens on `127.0.0.1` only.
@@ -84,6 +84,7 @@ Tested with [transcription-handy-like](https://github.com/DamienBecherini/transc
 ```
 .venv/bin/python -m subtitles.web --open        # web page on http://127.0.0.1:4420/
 .venv/bin/python -m subtitles "https://www.youtube.com/watch?v=..."
+.venv/bin/python -m subtitles "https://www.youtube.com/playlist?list=..."   # the whole playlist, as a batch
 .venv/bin/python -m subtitles "my video.mp4" --languages fr,de
 .venv/bin/python -m subtitles "D:/Series/Season 1"      # every video in the folder, as a batch
 .venv/bin/python -m subtitles --list              # configured engines
@@ -92,6 +93,8 @@ Tested with [transcription-handy-like](https://github.com/DamienBecherini/transc
 Command line options: `--output-dir`, `--language en` (spoken language), `--languages fr,de` (target languages), `--transcription <id>`, `--translator <id>`, `--redo`, `--no-cleanup`, `--lang en` (language of the messages).
 
 A folder becomes a batch, the same as in the web page: `subtitles.batch.json` records its progress, and running the same command after an interruption (Ctrl+C, power cut) resumes it. Finished videos are skipped and the others reuse their saved transcription. The command does not pause before translation. Batch options: `--until translation|dubbing|mux` (last step, translation by default), `--new-batch` (ignore the existing batch file and list the folder again), `--no-subfolders`. You can also pass a `.batch.json` file. The exit code is 0 when every video is done, 1 otherwise. Don't run the same batch in the web page at the same time.
+
+A playlist address (a YouTube playlist or channel) is downloaded into a folder named after it, in the download folder, with the videos numbered in the order of the list (`001 - title.mp4`); this folder is then processed as a batch. A video that cannot be downloaded (private, removed) is skipped and reported, and running the command again resumes the download. The address of a video inside a playlist (`watch?v=…&list=…`) processes that video alone, or the whole list with `--playlist`. On the page, the preview of the address offers **Download the playlist**, then the folder opens as any source folder.
 
 File pickers use the system dialog: PowerShell on Windows, `osascript` on macOS, `zenity` or `kdialog` on Linux. Without any of them, type the path in the field.
 
@@ -124,6 +127,8 @@ Open **Settings** on the page. Your settings are saved in `config.json` in the u
 | `file:<path>` | file containing the key, outside the repository |
 | `sops:<file>#<NAME>` | decrypted when used, if sops is installed |
 
+**Downloads** (Settings, `[youtube]` table): the folder of the downloaded videos (the output folder by default), the maximum quality (1080p by default, with sound up to 128 kb/s: no 4K files of several GB to make subtitles), and other yt-dlp options, such as `--cookies-from-browser firefox` for videos that need an account. Your own yt-dlp configuration file is still read (cookies, JavaScript runtime…); these settings replace only its output folder and format. Also in the `[youtube]` table: `merge_format` (`mp4`), `retries` (10, for the passing 403 errors of YouTube), `max_audio_kbps`.
+
 ## Languages
 
 The page, the task logs, the error messages and the command line are in English and French.
@@ -138,7 +143,7 @@ The setting names, the command line options and the API fields are in English: t
 
 ## How it works
 
-1. **Source.** `yt-dlp` downloads the video into the output folder if needed, then `ffmpeg` extracts the audio.
+1. **Source.** `yt-dlp` downloads the video into the download folder if needed, then `ffmpeg` extracts the audio.
 2. **Transcription.** The audio goes to your server; the result is kept in `transcription.json`.
 3. **Cutting.** Words are grouped into sentences, then into subtitles of at most 2 lines of 42 characters and 6 seconds.
 4. **Translation.** Numbered batches of 25 lines, with context. Timings do not change.
@@ -151,14 +156,16 @@ The setting names, the command line options and the API fields are in English: t
 
 ## HTTP API
 
-The web page uses a local JSON API on `http://127.0.0.1:4420`, which scripts can use too. It has no authentication: it only listens on the local machine. Error messages follow the `X-Language` header (`en`, `fr`). The full list is at the top of `subtitles/web/server.py`.
+The web page uses a local JSON API on `http://127.0.0.1:4420`, which scripts can use too. It has no authentication: it only listens on the local machine, and refuses the requests sent by other websites open in the browser (`Origin` and `Host` headers checked; `curl` and scripts are accepted). Error messages follow the `X-Language` header (`en`, `fr`). Each route is a function marked `@route` in `subtitles/web/server.py`, with its body fields in its docstring.
 
 | Request | Purpose |
 | --- | --- |
-| `POST /api/tasks` `{source, languages?, translator?, transcription?, output_dir?, pause?}` | one video or YouTube URL → task |
+| `POST /api/tasks` `{source, languages?, translator?, transcription?, output_dir?, pause?}` | one video (file or address) → task |
 | `GET /api/tasks/<id>?since=N` | state, current step, log lines from N |
 | `POST /api/tasks/<id>/translate` `{translator?, languages?}` | continue a task paused before translation |
 | `POST /api/folder` `{path}` then `GET /api/folder/<id>?videos=1` | list the videos of a folder |
+| `POST /api/youtube` `{url}` | title and duration of a video address, or the playlist it designates, without downloading |
+| `POST /api/playlist` `{url}` then `GET /api/playlist/<id>` | download a whole playlist into a folder, then open it with `/api/folder` |
 | `POST /api/batches` `{root, videos: [{path, language}], languages?, translator?, pause?, stop?}` | start a batch |
 | `GET /api/batches/<id>` | progress: `state`, `phase`, `step` (step of the running video), counts, time left |
 | `POST /api/batches/load` `{file}` then `POST /api/batches/<id>/resume` | resume from a `subtitles.batch.json` |
