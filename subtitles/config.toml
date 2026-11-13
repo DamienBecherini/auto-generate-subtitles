@@ -1,0 +1,100 @@
+# Default settings of the subtitle generator: do not edit them for an installation. The web interface
+# (python -m subtitles.web) saves your choices in the config.json file of the user folder
+# (%LOCALAPPDATA%/subtitles on Windows, ~/.config/subtitles otherwise), which overrides this file; the command
+# line (python -m subtitles) reads both.
+#
+# No secret here. A key is a reference, never a value:
+#   env:NAME                  environment variable
+#   file:/path/of/the/file    file that holds the key (restricted rights, outside the repository)
+#   sops:<file>#<NAME>        file encrypted by sops, if sops is installed
+
+output_dir = "~/Videos/subtitles"          # downloaded videos (and .srt files if destination.output_dir); intermediate files in .work/<name>/
+language = ""                              # spoken language ("" = automatic detection)
+target_languages = ["fr"]                  # translation languages: one <video>.<code>.srt per language (the spoken language is always produced)
+active_transcription = "example"
+active_translator = "none"
+ui_language = ""                           # language of the menus and messages (fr, en…: subtitles/locales/); "" = the browser's or the system's
+
+[destination]                              # where the .srt files go (named after the video + language code)
+next_to_video = true                       # next to the video: VLC and most players load them by themselves
+output_dir = false                         # in the output folder above
+
+[cleanup]                                  # working folder .work/<name>/ at the end of each task (true = delete)
+audio = true                               # extracted audio track (the largest file; redone in a few seconds if needed)
+subtitles = true                           # .srt/.vtt copies of the working folder (kept if no destination is ticked)
+transcription = false                      # transcription.json and translation.<language>.json: kept, to add a language without transcribing again
+logs = false                               # task logs; those older than logs_age_h hours are purged when the interface starts
+logs_age_h = 48
+
+# --- Transcription servers -------------------------------------------------------------------------------------
+# OpenAI-compatible API: POST /v1/audio/transcriptions, as verbose_json with timestamped words ("words" field).
+[[transcriptions]]
+id = "example"
+# name = "My server"                     # displayed name; without it, a default name in the interface language
+url = "http://127.0.0.1:8000"
+key = ""
+# Optional:
+# speed = 10                              # seconds of audio transcribed per second: used to announce the time left
+# command = ["program", "argument"]       # starts the server on demand, and stops it at the end
+# cwd = "/path/of/the/server"             # working directory of this command
+
+# --- Translators -----------------------------------------------------------------------------------------------
+[[translators]]
+id = "local"
+type = "openai"                           # OpenAI-compatible API (llama.cpp, Ollama, OpenAI, Mistral, Groq…)
+url = "http://127.0.0.1:8080"
+model = "model-name"
+key = ""
+# Optional, with the supervision (New Tab page): it starts the local AI if it is stopped.
+# supervision = "http://127.0.0.1:8300"
+# stop_after = true                       # stops it at the end of the task if this tool started it
+
+[[translators]]
+id = "claude"
+type = "claude"                           # Anthropic API through the official SDK (pip install anthropic)
+model = "claude-sonnet-5-5"               # good trade-off for translation; claude-opus-5-5 for more nuance
+effort = "low"                            # thinking depth (low, medium, high): translation needs little
+# parallel = 5                            # videos of a batch translated at once (5 by default for Claude, 1 for a local AI)
+key = "env:ANTHROPIC_API_KEY"
+
+[[translators]]
+id = "none"
+type = "none"
+
+[youtube]
+# yt-dlp command (with its usual configuration); the output folder above replaces the one of its config (-o).
+# Windows with yt-dlp in WSL: ["wsl", "-e", "bash", "-lc", 'exec yt-dlp "$@"', "yt-dlp"]
+command = ["yt-dlp"]
+
+[translation]
+chunk_size = 25                           # subtitles sent to the model per request
+
+[estimation]                              # cost announced before translation (pause); measured 08/11/2026, Anthropic prices of 06/10/2026
+input_tokens_per_line = 36                # per subtitle and per language (instructions + chunk + context included)
+output_tokens_per_line = 23
+local_seconds_per_line = 0.6              # time per subtitle of a local model, to adjust to the machine
+[estimation.prices]                       # dollars per million tokens: [input, output]
+"claude-opus-5-5" = [4.0, 20.0]
+"claude-sonnet-5-5" = [2.0, 10.0]
+"claude-haiku-5-5" = [0.10, 0.50]
+
+[subtitles]
+chars_per_line = 42
+lines = 2
+max_duration = 6.0    # seconds: beyond, the sentence is split into several subtitles
+min_duration = 1.0    # seconds: a subtitle stays at least this long (if the next one leaves room)
+split_pause = 0.6     # seconds of silence between two words: new "sentence"
+min_gap = 0.08        # seconds between the end of a subtitle and the start of the next one
+reading_cps = 17      # characters per second: comfortable display time
+
+[dubbing]                                  # AI dubbing of the first translated language; separate environment (torch, demucs, omnivoice, soundfile, num2words)
+enabled = false
+command = ["python"]                       # interpreter of that environment; on Windows with WSL: ["wsl", "--", "dubbing/.venv/bin/python"]
+model = "k2-fsa/OmniVoice"                 # Hugging Face id, or local folder as seen by this command
+wsl = false                                # true: Windows paths are given as /mnt/<drive>/…
+steps = 32                                 # generation steps: more = better and slower
+
+[web]
+port = 4420
+idle_min = 60                              # the interface stops after this time without action or running work (0 = never)
+github = "https://github.com/DamienBecherini/auto-generate-subtitles"   # address of the public repository (link in the page header; greyed out while empty)

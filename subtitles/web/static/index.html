@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subtitles</title>
+<script>try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23264653'/%3E%3Crect x='6' y='19' width='20' height='3' rx='1.5' fill='%23fff'/%3E%3Crect x='9' y='24' width='14' height='3' rx='1.5' fill='%23fff'/%3E%3C/svg%3E">
+</head>
+<body class="loading">
+<header>
+  <h1 data-i18n="ui.title"></h1>
+  <div class="engines">
+    <span class="chip" id="chip-transcription" data-i18n-title="ui.header.transcription_title">…</span>
+    <span class="chip" id="chip-translator" data-i18n-title="ui.header.translator_title">…</span>
+    <span class="chip subtle" id="chip-ai" hidden></span>
+  </div>
+  <a id="github-link" class="header-link" href="#" target="_blank" rel="noopener" aria-disabled="true">GitHub</a>
+  <select id="language-choice" class="language-choice" data-i18n-title="ui.header.language" data-i18n-aria-label="ui.header.language"></select>
+  <button id="btn-theme" class="secondary theme" type="button"></button>
+  <button id="btn-settings" class="secondary" disabled data-i18n="ui.settings"></button>
+  <span class="chip attention process" id="process" hidden></span>
+</header>
+
+<main inert aria-busy="true">
+  <div id="loading" class="banner" role="status"><span class="spinner" aria-hidden="true"></span><span id="loading-text" data-i18n="ui.loading"></span></div>
+  <div id="offline" class="banner" hidden data-i18n="ui.service_down"></div>
+  <div id="last-batch" class="banner" hidden>
+    <strong id="last-batch-title"></strong>
+    <div class="help" id="last-batch-detail"></div>
+    <div class="actions">
+      <button type="button" class="primary" id="btn-last-resume" data-i18n="ui.last_batch.resume"></button>
+      <button type="button" class="secondary" id="btn-last-settings" data-i18n="ui.last_batch.settings_first" data-i18n-title="ui.last_batch.settings_first_title"></button>
+      <button type="button" class="secondary" id="btn-last-ignore" data-i18n="ui.last_batch.ignore" data-i18n-title="ui.last_batch.ignore_title"></button>
+    </div>
+  </div>
+  <section class="card" id="input-card">
+    <form id="form-source">
+      <label for="source" data-i18n="ui.source.label"></label>
+      <div class="row">
+        <input id="source" type="text" data-i18n-placeholder="ui.source.placeholder" autocomplete="off" spellcheck="false">
+        <button type="submit" id="btn-go" class="primary" data-i18n="ui.source.start"></button>
+      </div>
+      <div id="preview" class="preview" hidden></div>
+    </form>
+
+    <div id="drop" class="drop">
+      <div class="drop-actions">
+        <strong data-i18n="ui.drop.title"></strong>
+        <span class="help" data-i18n="ui.drop.or"></span>
+        <button type="button" id="btn-browse" class="secondary" data-i18n="ui.browse"></button>
+        <button type="button" id="btn-source-folder" class="secondary" data-i18n="ui.drop.folder"></button>
+        <button type="button" id="btn-resume-batch" class="secondary" data-i18n="ui.drop.resume_batch" data-i18n-title="ui.drop.resume_batch_title"></button>
+      </div>
+      <div class="help" data-i18n="ui.drop.help"></div>
+      <div id="drop-progress" class="progress" hidden><div class="bar"></div><span class="text"></span></div>
+    </div>
+
+    <div id="folder" class="sub-card" hidden>
+      <div class="head">
+        <h2 data-i18n="ui.folder.title"></h2>
+        <button type="button" class="secondary small" id="btn-folder-fold" data-i18n="ui.folder.expand_all"></button>
+        <button type="button" class="secondary small" id="btn-folder-all" data-i18n="ui.check_all"></button>
+        <button type="button" class="secondary small" id="btn-folder-none" data-i18n="ui.uncheck_all"></button>
+        <button type="button" class="secondary small" id="btn-folder-missing" data-i18n="ui.folder.check_missing" data-i18n-title="ui.folder.check_missing_title"></button>
+        <button type="button" class="close" id="btn-close-folder" data-i18n-aria-label="ui.close">×</button>
+    </div>
+      <div class="help" id="folder-root"></div>
+      <div id="folder-loading" class="row" hidden>
+        <div id="folder-progress" class="progress"><div class="bar"></div><span class="text"></span></div>
+        <button type="button" class="secondary small" id="btn-folder-cancel" data-i18n="ui.cancel"></button>
+      </div>
+      <div id="folder-existing-batch" class="help" hidden></div>
+      <div class="checks" style="margin-top:10px">
+        <label class="check"><span data-i18n="ui.folder.spoken_all"></span> <select id="folder-global-language"></select></label>
+        <button type="button" class="secondary small" id="btn-folder-apply-language" data-i18n="ui.folder.apply"></button>
+        <span class="help" data-i18n="ui.folder.apply_help"></span>
+    </div>
+      <div id="folder-tree" class="tree"></div>
+    </div>
+
+    <div class="goal">
+      <span class="help" data-i18n="ui.goal.title"></span>
+      <div class="checks">
+        <label class="check"><input type="radio" name="goal" value="translation" checked> <span data-i18n="ui.goal.subtitles"></span></label>
+        <label class="check" id="goal-dubbing-zone"><input type="radio" name="goal" value="mux" id="opt-goal-dubbing"> <span data-i18n="ui.goal.dubbing"></span></label>
+      </div>
+      <label class="check" id="replace-zone" hidden><input type="checkbox" id="opt-replace"> <span data-i18n="ui.goal.replace"></span></label>
+      <div class="help" id="goal-note"></div>
+    </div>
+    <div class="options">
+      <label><span data-i18n="ui.transcription"></span>
+        <select id="opt-transcription"></select>
+      </label>
+      <label><span data-i18n="ui.translation"></span>
+        <select id="opt-translator"></select>
+      </label>
+      <label><span data-i18n="ui.spoken_language"></span>
+        <select id="opt-language"></select>
+      </label>
+      <div class="wide group">
+        <span class="help" data-i18n="ui.targets_help"></span>
+        <div id="opt-languages" class="checks"></div>
+      </div>
+      <div class="wide group">
+        <span class="help" data-i18n="ui.dest.title"></span>
+        <div class="checks">
+          <label class="check"><input type="checkbox" id="opt-dest-next-to"> <span data-i18n="ui.dest.next_to"></span></label>
+          <label class="check"><input type="checkbox" id="opt-dest-output"> <span data-i18n="ui.dest.output"></span></label>
+          <span class="help" id="output-reminder" data-i18n-title="ui.dest.reminder_title"></span>
+        </div>
+        <div class="row" id="output-zone" hidden>
+          <input id="opt-output-dir" type="text" spellcheck="false" data-i18n-placeholder="ui.output_folder">
+          <button type="button" id="btn-output-folder" class="secondary" data-i18n="ui.browse"></button>
+        </div>
+      </div>
+      <label class="check wide"><input type="checkbox" id="opt-pause"> <span id="opt-pause-text" data-i18n="ui.pause_option"></span></label>
+      <label class="check wide"><input type="checkbox" id="opt-redo"> <span data-i18n="ui.redo_option"></span></label>
+    </div>
+    <div id="translator-engine" class="engine-inline" hidden></div>
+    <div class="actions" id="folder-actions" hidden>
+      <label class="check" id="review-zone"><input type="checkbox" id="opt-review"> <span data-i18n="ui.review_option"></span></label>
+      <button type="button" class="primary" id="btn-start-batch" data-i18n="ui.start_batch"></button>
+      <span class="help" id="folder-summary"></span>
+    </div>
+    <datalist id="claude-models"><option value="claude-sonnet-5-5"><option value="claude-opus-5-5"><option value="claude-haiku-5-5"></datalist>
+  </section>
+
+  <section class="card" id="batch" hidden>
+    <div class="head">
+      <h2><span data-i18n="ui.batch.title"></span> <span class="help" id="batch-root"></span></h2>
+      <span class="state" id="batch-state" role="status"></span>
+      <button type="button" class="secondary" id="btn-batch-suspend" data-i18n="ui.batch.pause" data-i18n-title="ui.batch.pause_title"></button>
+      <button type="button" class="secondary" id="btn-batch-resume" data-i18n="ui.batch.resume"></button>
+      <button type="button" class="secondary" id="btn-batch-retry" data-i18n-title="ui.batch.retry_title" hidden></button>
+      <button type="button" class="secondary danger" id="btn-batch-cancel" data-i18n="ui.cancel"></button>
+    </div>
+    <p class="help" id="batch-pause-info" hidden></p>
+    <div class="progress" id="batch-progress"><div class="bar"></div><span class="text"></span></div>
+    <div id="batch-active" class="batch-active" hidden></div>
+    <div class="batch-goal" id="batch-goal-zone" hidden>
+      <label><span data-i18n="ui.batch.produces"></span> <select id="batch-goal"><option value="translation" data-i18n="ui.goal.subtitles"></option><option value="mux" data-i18n="ui.goal.dubbing"></option></select></label>
+      <label class="check" id="batch-replace-zone" hidden><input type="checkbox" id="batch-replace"> <span data-i18n="ui.batch.replace"></span></label>
+      <span class="help" id="batch-goal-note"></span>
+    </div>
+    <div class="help" id="batch-file"></div>
+    <div id="batch-suspended" class="pause" hidden>
+      <div><strong data-i18n="ui.batch.next_settings"></strong> <span class="help" data-i18n="ui.batch.next_settings_help"></span></div>
+      <div class="options">
+        <label><span data-i18n="ui.transcription"></span> <select id="batch-susp-transcription"></select></label>
+        <label><span data-i18n="ui.translator"></span> <select id="batch-susp-translator"></select></label>
+        <div class="wide group"><span class="help" data-i18n="ui.target_languages"></span><div id="batch-susp-languages" class="checks"></div></div>
+      </div>
+    </div>
+    <div id="batch-pause" class="pause" hidden>
+      <div><strong data-i18n="ui.batch.all_transcribed"></strong> <span class="help" id="batch-pause-summary"></span></div>
+      <div class="actions" id="batch-to-check" hidden>
+        <span id="batch-to-check-text"></span>
+        <button type="button" class="secondary" id="btn-batch-check" data-i18n="ui.check_names"></button>
+      </div>
+      <div class="costs" id="batch-costs"></div>
+      <div class="options">
+        <label><span data-i18n="ui.translator"></span> <select id="batch-translator"></select></label>
+        <label id="batch-model-zone" hidden><span data-i18n="ui.model"></span> <select id="batch-model"></select></label>
+        <label id="batch-effort-zone" hidden><span data-i18n="ui.effort"></span> <select id="batch-effort"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>
+        <div class="wide help" id="batch-effort-note" hidden data-i18n="ui.batch.effort_note"></div>
+        <div class="wide group"><span class="help" data-i18n="ui.target_languages"></span><div id="batch-languages" class="checks"></div></div>
+      </div>
+      <div class="actions">
+        <button type="button" class="primary" id="btn-batch-translate" data-i18n="ui.batch.translate_all"></button>
+        <button type="button" class="secondary" id="btn-batch-no-translation" data-i18n="ui.finish_untranslated"></button>
+        <span class="help" id="batch-message"></span>
+      </div>
+    </div>
+    <div id="validation" class="pause" hidden>
+      <div><strong id="validation-title"></strong> <span class="help" data-i18n="ui.names.help"></span></div>
+      <div class="actions">
+        <button type="button" class="secondary small" id="btn-validation-all" data-i18n="ui.check_all"></button>
+        <button type="button" class="secondary small" id="btn-validation-none" data-i18n="ui.uncheck_all"></button>
+      </div>
+      <div class="validation-list">
+        <table>
+          <thead><tr><th></th><th data-i18n="ui.names.heard"></th><th data-i18n="ui.names.fix"></th><th data-i18n="ui.names.french"></th><th data-i18n="ui.names.why"></th></tr></thead>
+          <tbody id="validation-rows"></tbody>
+        </table>
+      </div>
+      <div class="actions">
+        <button type="button" class="primary" id="btn-validation-validate"></button>
+        <button type="button" class="secondary" id="btn-validation-close" data-i18n="ui.close"></button>
+        <span class="help" id="validation-message"></span>
+      </div>
+    </div>
+    <ul id="batch-videos" class="list"></ul>
+  </section>
+
+  <section class="card" id="task" hidden>
+    <div class="head">
+      <h2 id="task-title" data-i18n="ui.task.title"></h2>
+      <span class="state" id="task-state" role="status"></span>
+      <button id="btn-cancel" class="secondary danger" data-i18n="ui.cancel"></button>
+      <button type="button" id="btn-retry" class="primary" data-i18n="ui.retry" data-i18n-title="ui.retry_title" hidden></button>
+    </div>
+    <ol class="steps" id="steps">
+      <li data-step="source" data-i18n="ui.step.source"></li>
+      <li data-step="transcription" data-i18n="ui.transcription"></li>
+      <li data-step="segmentation" data-i18n="ui.step.split"></li>
+      <li data-step="review" data-i18n="ui.step.review" hidden></li>
+      <li data-step="translation" data-i18n="ui.translation"></li>
+      <li data-step="files" data-i18n="ui.step.files"></li>
+      <li data-step="dubbing" data-i18n="ui.step.dubbing" hidden></li>
+      <li data-step="mux" hidden>MKV</li>
+    </ol>
+    <div id="pause" class="pause" hidden>
+      <div><strong id="pause-title" data-i18n="ui.task.paused_title"></strong> <span class="help" id="pause-summary"></span></div>
+      <div class="costs" id="pause-costs"></div>
+      <div class="options">
+        <label><span data-i18n="ui.translator"></span> <select id="pause-translator"></select></label>
+        <div class="wide group"><span class="help" data-i18n="ui.target_languages"></span><div id="pause-languages" class="checks"></div></div>
+      </div>
+      <div class="actions">
+        <button type="button" class="primary" id="btn-translate" data-i18n="ui.translate"></button>
+        <button type="button" class="secondary" id="btn-no-translation" data-i18n="ui.finish_untranslated" data-i18n-title="ui.task.finish_untranslated_title"></button>
+        <span class="help" id="pause-message"></span>
+      </div>
+    </div>
+    <div id="result" class="result" hidden></div>
+    <pre id="log" class="log"><span id="log-text"></span><span id="log-timer" class="timer"></span></pre>
+    <div class="log-actions"><button type="button" id="btn-retry-log" class="secondary small" data-i18n="ui.retry" data-i18n-title="ui.retry_title" hidden></button></div>
+  </section>
+
+  <section class="card" id="history-card">
+    <div class="head"><h2 data-i18n="ui.history.title"></h2><button type="button" class="secondary small" id="btn-history" hidden></button></div>
+    <ul id="history" class="list"></ul>
+  </section>
+</main>
+
+<dialog id="dlg-settings">
+  <form method="dialog" id="form-settings">
+    <div class="head"><h2 data-i18n="ui.settings"></h2><button type="button" class="close" id="btn-close-settings" data-i18n-aria-label="ui.close">×</button></div>
+    <p class="help" data-i18n-html="ui.cfg.keys_help"></p>
+
+    <h3 data-i18n="ui.cfg.general"></h3>
+    <div class="grid">
+      <label><span data-i18n="ui.output_folder"></span> <input type="text" id="cfg-output-dir"></label>
+      <label><span data-i18n="ui.cfg.default_language"></span> <input type="text" id="cfg-language" data-i18n-placeholder="ui.cfg.default_language_placeholder"></label>
+      <label><span data-i18n="ui.cfg.ytdlp"></span> <input type="text" id="cfg-youtube"></label>
+      <label><span data-i18n="ui.cfg.chunk"></span> <input type="number" id="cfg-chunk" min="1" max="100"></label>
+      <label><span data-i18n="ui.cfg.idle"></span> <input type="number" id="cfg-idle" min="0" max="10080"></label>
+    </div>
+
+    <h3><span data-i18n="ui.cfg.servers"></span> <button type="button" class="secondary small" id="btn-add-transcription" data-i18n="ui.add"></button></h3>
+    <div id="transcription-list" class="engine-list"></div>
+
+    <h3><span data-i18n="ui.cfg.translators"></span> <button type="button" class="secondary small" id="btn-add-translator" data-i18n="ui.add"></button></h3>
+    <div id="translator-list" class="engine-list"></div>
+
+    <h3><span data-i18n="ui.cfg.cleanup"></span> <span class="help" data-i18n="ui.cfg.cleanup_help"></span></h3>
+    <div class="checks">
+      <label class="check"><input type="checkbox" id="cfg-clean-audio"> <span data-i18n="ui.cfg.clean_audio"></span> <span class="help" data-summary="audio"></span></label>
+      <label class="check"><input type="checkbox" id="cfg-clean-subtitles"> <span data-i18n="ui.cfg.clean_subtitles"></span> <span class="help" data-summary="subtitles"></span></label>
+      <label class="check"><input type="checkbox" id="cfg-clean-transcription"> <span data-i18n="ui.cfg.clean_transcription"></span> <span class="help" data-summary="transcription"></span></label>
+      <label class="check"><input type="checkbox" id="cfg-clean-logs"> <span data-i18n="ui.cfg.clean_logs"></span> <span class="help" data-summary="logs"></span></label>
+      <label class="check"><span data-i18n="ui.cfg.older_than"></span> <input type="number" id="cfg-clean-age" min="0" max="8760" style="width:70px"> <span data-i18n="ui.cfg.older_than_help"></span></label>
+    </div>
+    <div class="actions">
+      <button type="button" class="secondary small" id="btn-clean" data-i18n="ui.cfg.clean_now"></button>
+      <span class="help" id="cleanup-feedback" data-i18n="ui.cfg.clean_now_help"></span>
+    </div>
+
+    <h3 data-i18n="ui.cfg.layout"></h3>
+    <div class="grid">
+      <label><span data-i18n="ui.cfg.cpl"></span> <input type="number" id="cfg-cpl" min="20" max="80"></label>
+      <label><span data-i18n="ui.cfg.lines"></span> <input type="number" id="cfg-lines" min="1" max="3"></label>
+      <label><span data-i18n="ui.cfg.max_duration"></span> <input type="number" id="cfg-dmax" step="0.5" min="2" max="12"></label>
+      <label><span data-i18n="ui.cfg.min_duration"></span> <input type="number" id="cfg-dmin" step="0.1" min="0.3" max="3"></label>
+      <label><span data-i18n="ui.cfg.gap"></span> <input type="number" id="cfg-pause" step="0.1" min="0.2" max="3"></label>
+      <label><span data-i18n="ui.cfg.cps"></span> <input type="number" id="cfg-cps" min="8" max="30"></label>
+    </div>
+
+    <div class="footer">
+      <span id="settings-message" class="help"></span>
+      <button type="button" class="secondary" id="btn-cancel-settings" data-i18n="ui.cancel"></button>
+      <button type="button" class="primary" id="btn-save-settings" data-i18n="ui.save"></button>
+    </div>
+  </form>
+</dialog>
+
+<template id="tpl-transcription">
+  <div class="engine">
+    <div class="grid">
+      <label>Id <input type="text" data-field="id"></label>
+      <label><span data-i18n="ui.eng.name"></span> <input type="text" data-field="name"></label>
+      <label>URL <input type="text" data-field="url" data-i18n-placeholder="ui.eng.url_placeholder"></label>
+      <label><span data-i18n="ui.eng.key"></span> <input type="text" data-field="key" data-i18n-placeholder="ui.eng.key_placeholder"></label>
+      <label><span data-i18n="ui.eng.speed"></span> <input type="text" data-field="speed" data-i18n-placeholder="ui.eng.speed_placeholder"></label>
+      <label class="wide"><span data-i18n="ui.eng.command"></span> <input type="text" data-field="command"></label>
+      <label><span data-i18n="ui.eng.command_folder"></span> <input type="text" data-field="cwd"></label>
+    </div>
+    <div class="actions">
+      <label class="check"><input type="radio" name="transcription-active" data-field="active"> <span data-i18n="ui.eng.active"></span></label>
+      <button type="button" class="secondary small" data-action="test" data-i18n="ui.eng.test"></button>
+      <button type="button" class="secondary small danger" data-action="delete" data-i18n="ui.eng.delete"></button>
+      <span class="help" data-role="feedback"></span>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-translator">
+  <div class="engine">
+    <div class="grid">
+      <label>Id <input type="text" data-field="id"></label>
+      <label><span data-i18n="ui.eng.name"></span> <input type="text" data-field="name"></label>
+      <label><span data-i18n="ui.eng.type"></span>
+        <select data-field="type">
+          <option value="openai" data-i18n="ui.eng.type_openai"></option>
+          <option value="claude" data-i18n="ui.eng.type_claude"></option>
+          <option value="none" data-i18n="ui.eng.type_none"></option>
+        </select>
+      </label>
+      <label><span data-i18n="ui.model"></span> <input type="text" data-field="model"></label>
+      <label><span data-i18n="ui.eng.effort_claude"></span>
+        <select data-field="effort"><option value="" data-i18n="ui.effort_default"></option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>
+      </label>
+      <label><span data-i18n="ui.eng.url_openai"></span> <input type="text" data-field="url" placeholder="http://127.0.0.1:8080"></label>
+      <label><span data-i18n="ui.eng.key"></span> <input type="text" data-field="key" data-i18n-placeholder="ui.eng.key_placeholder"></label>
+      <label><span data-i18n="ui.supervision"></span> <input type="text" data-field="supervision" data-i18n-placeholder="ui.eng.supervision_placeholder"></label>
+      <label class="check"><input type="checkbox" data-field="stop_after"> <span data-i18n="ui.stop_after"></span></label>
+    </div>
+    <div class="actions">
+      <label class="check"><input type="radio" name="translator-active" data-field="active"> <span data-i18n="ui.eng.active"></span></label>
+      <button type="button" class="secondary small" data-action="test" data-i18n="ui.eng.test"></button>
+      <button type="button" class="secondary small danger" data-action="delete" data-i18n="ui.eng.delete"></button>
+      <span class="help" data-role="feedback"></span>
+    </div>
+  </div>
+</template>
+
+<script src="/static/i18n.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

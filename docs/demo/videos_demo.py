@@ -1,8 +1,8 @@
-"""Fabrique des vidéos de démonstration : narration (synthèse vocale Windows : Hortense en français, Zira en anglais)
-sur un fond en dégradé animé avec un titre. Aucune source extérieure, donc aucun droit d'auteur en jeu.
-Les vidéos françaises servent aux captures du README français, les anglaises à celles du README anglais.
+"""Makes demo videos: narration (Windows speech synthesis: Hortense in French, Zira in English) over an animated
+gradient background with a title. No outside source, so no copyright involved.
+The French videos are used for the screenshots of the French README, the English ones for the English README.
 
-    python videos_demo.py <dossier de sortie> [fr|en]
+    python videos_demo.py <output folder> [fr|en]
 """
 import subprocess
 import sys
@@ -45,37 +45,37 @@ VIDEOS_EN = [
      "answers. Silence is not success."),
 ]
 VIDEOS = {"fr": VIDEOS_FR, "en": VIDEOS_EN}
-VOIX = {"fr": "Microsoft Hortense Desktop", "en": "Microsoft Zira Desktop"}
+VOICES = {"fr": "Microsoft Hortense Desktop", "en": "Microsoft Zira Desktop"}
 
-POLICE = "C\\:/Windows/Fonts/segoeuib.ttf"
+FONT = "C\\:/Windows/Fonts/segoeuib.ttf"
 
 
-def parler(texte, wav, voix):
+def speak(text, wav, voice):
     ps = (f"Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-          f"$s.SelectVoice('{voix}'); $s.Rate = 0; "
+          f"$s.SelectVoice('{voice}'); $s.Rate = 0; "
           f"$s.SetOutputToWaveFile('{wav}'); $s.Speak([IO.File]::ReadAllText('{wav}.txt')); $s.Dispose()")
-    Path(f"{wav}.txt").write_text(texte, encoding="utf-8-sig")
+    Path(f"{wav}.txt").write_text(text, encoding="utf-8-sig")
     subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=True)
 
 
 def main():
-    sortie = Path(sys.argv[1])
-    langue = sys.argv[2] if len(sys.argv) > 2 else "fr"
-    sortie.mkdir(parents=True, exist_ok=True)
-    travail = Path(tempfile.mkdtemp(prefix="videos-demo-"))
-    for i, (nom, titre, texte) in enumerate(VIDEOS[langue]):
-        wav = travail / f"{i}.wav"
-        parler(texte, str(wav), VOIX[langue])
-        teintes = ["0x1d4e89 0x2a9d8f", "0x6a4c93 0x1982c4", "0x264653 0xe76f51"][i]
-        c1, c2 = teintes.split()
-        titre_ff = titre.replace("'", "’").replace(":", "\\:")
-        filtre = (f"drawtext=fontfile='{POLICE}':text='{titre_ff}':fontcolor=white:fontsize=64:"
+    output = Path(sys.argv[1])
+    language = sys.argv[2] if len(sys.argv) > 2 else "fr"
+    output.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="videos-demo-"))
+    for i, (name, title, text) in enumerate(VIDEOS[language]):
+        wav = work / f"{i}.wav"
+        speak(text, str(wav), VOICES[language])
+        colours = ["0x1d4e89 0x2a9d8f", "0x6a4c93 0x1982c4", "0x264653 0xe76f51"][i]
+        c1, c2 = colours.split()
+        ff_title = title.replace("'", "’").replace(":", "\\:")
+        vf = (f"drawtext=fontfile='{FONT}':text='{ff_title}':fontcolor=white:fontsize=64:"
                   f"x=(w-text_w)/2:y=h*0.32:shadowcolor=black@0.4:shadowx=3:shadowy=3")
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error",
                         "-f", "lavfi", "-i", f"gradients=s=1280x720:c0={c1}:c1={c2}:speed=0.008:r=25",
-                        "-i", str(wav), "-vf", filtre, "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                        "-c:a", "aac", "-b:a", "128k", str(sortie / f"{nom}.mp4")], check=True)
-        print(nom)
+                        "-i", str(wav), "-vf", vf, "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-b:a", "128k", str(output / f"{name}.mp4")], check=True)
+        print(name)
 
 
 if __name__ == "__main__":

@@ -53,7 +53,7 @@ git clone https://github.com/DamienBecherini/auto-generate-subtitles.git
 cd auto-generate-subtitles
 python -m venv .venv
 .venv/bin/pip install .             # Windows: .venv/Scripts/python -m pip install .
-.venv/bin/python -m soustitres.web --ouvrir
+.venv/bin/python -m subtitles.web --open
 ```
 
 **3. Check the connection.** On the page, open **Settings**, then click **Test** next to the transcription server. If your server is on another machine or uses an API key, change its address and key there.
@@ -71,16 +71,16 @@ Tested with [transcription-handy-like](https://github.com/DamienBecherini/transc
 ## Use
 
 ```
-.venv/bin/python -m soustitres.web --ouvrir        # web page on http://127.0.0.1:4420/
-.venv/bin/python -m soustitres "https://www.youtube.com/watch?v=..."
-.venv/bin/python -m soustitres "my video.mp4" --langues fr,de
-.venv/bin/python -m soustitres "D:/Series/Season 1"      # every video in the folder, as a batch
-.venv/bin/python -m soustitres --liste              # configured engines
+.venv/bin/python -m subtitles.web --open        # web page on http://127.0.0.1:4420/
+.venv/bin/python -m subtitles "https://www.youtube.com/watch?v=..."
+.venv/bin/python -m subtitles "my video.mp4" --languages fr,de
+.venv/bin/python -m subtitles "D:/Series/Season 1"      # every video in the folder, as a batch
+.venv/bin/python -m subtitles --list              # configured engines
 ```
 
-Command line options: `--sortie`, `--langue en` (spoken language), `--langues fr,de` (target languages), `--transcription <id>`, `--traducteur <id>`, `--refaire`, `--sans-nettoyage`, `--lang en` (language of the messages).
+Command line options: `--output-dir`, `--language en` (spoken language), `--languages fr,de` (target languages), `--transcription <id>`, `--translator <id>`, `--redo`, `--no-cleanup`, `--lang en` (language of the messages).
 
-A folder becomes a batch, the same as in the web page: `sous-titres.lot.json` records its progress, and running the same command after an interruption (Ctrl+C, power cut) resumes it. Finished videos are skipped and the others reuse their saved transcription. The command does not pause before translation. Batch options: `--jusqua traduction|doublage|assemblage` (last step, translation by default), `--nouveau-lot` (ignore the existing batch file and list the folder again), `--sans-sous-dossiers`. You can also pass a `.lot.json` file. The exit code is 0 when every video is done, 1 otherwise. Don't run the same batch in the web page at the same time.
+A folder becomes a batch, the same as in the web page: `subtitles.batch.json` records its progress, and running the same command after an interruption (Ctrl+C, power cut) resumes it. Finished videos are skipped and the others reuse their saved transcription. The command does not pause before translation. Batch options: `--until translation|dubbing|mux` (last step, translation by default), `--new-batch` (ignore the existing batch file and list the folder again), `--no-subfolders`. You can also pass a `.batch.json` file. The exit code is 0 when every video is done, 1 otherwise. Don't run the same batch in the web page at the same time.
 
 File pickers use the system dialog: PowerShell on Windows, `osascript` on macOS, `zenity` or `kdialog` on Linux. Without any of them, type the path in the field.
 
@@ -90,20 +90,20 @@ File pickers use the system dialog: PowerShell on Windows, `osascript` on macOS,
 
 - **Choose at the start**, for one video or a batch: *subtitles only*, or *subtitles + dubbing*. The steps and buttons follow. A batch can change its goal later; switching to dubbing starts nothing until you click **Resume** or **Continue**.
 - **Continue** takes one episode to the end of what the batch must produce, ahead of the others, so you can check it before running the rest.
-- **AI review** (needs a Claude translator, a few cents per video) finds proper names the transcription distorted. Nothing changes without your validation. Accepted names go to `sous-titres.glossaire.json`, and `transcription.json` is never rewritten.
+- **AI review** (needs a Claude translator, a few cents per video) finds proper names the transcription distorted. Nothing changes without your validation. Accepted names go to `subtitles.glossary.json`, and `transcription.json` is never rewritten.
 - A `.srt` you edited by hand is not overwritten, unless you tick the redo option. Dubbing and the MKV then use your version.
 
 ### Dubbing (optional, off by default)
 
 It clones the original voice sentence by sentence in the first translated language, keeps the background sound, and needs a graphics card (about 4.3 GB of video memory, and about 8 min 30 for 30 min of video on the machine used for testing). **Only clone a voice and dub content you have the right to use.**
 
-It runs in a separate Python environment with `torch`, `demucs`, `omnivoice`, `soundfile` and `num2words`, plus `ffmpeg`. Set it up in the `[doublage]` table of your settings: `actif`, `commande` (the Python of that environment), `modele` (a Hugging Face id or a local folder), and `wsl = true` if the command goes through WSL.
+It runs in a separate Python environment with `torch`, `demucs`, `omnivoice`, `soundfile` and `num2words`, plus `ffmpeg`. Set it up in the `[dubbing]` table of your settings: `enabled`, `command` (the Python of that environment), `model` (a Hugging Face id or a local folder), and `wsl = true` if the command goes through WSL.
 
 The result is `<video>.multi.mkv` next to the video: original tracks copied without re-encoding, the dubbed track, and the subtitles of each language. An option puts it in place of the video as `<video>.mkv`, once its tracks and duration are checked. The original goes to the recycle bin. If there is no recycle bin, both files are kept.
 
 ## Settings
 
-Open **Settings** on the page. Your settings are saved in `config.json` in the user folder (`%LOCALAPPDATA%\sous-titres` on Windows, `$XDG_CONFIG_HOME/sous-titres` or `~/.config/sous-titres` elsewhere). They override the defaults shipped in `soustitres/config.toml`, which only contains examples.
+Open **Settings** on the page. Your settings are saved in `config.json` in the user folder (`%LOCALAPPDATA%\subtitles` on Windows, `$XDG_CONFIG_HOME/subtitles` or `~/.config/subtitles` elsewhere). They override the defaults shipped in `subtitles/config.toml`, which only contains examples.
 
 **API keys are never stored in clear text.** The key field holds a reference, and a plain value is refused:
 
@@ -117,13 +117,13 @@ Open **Settings** on the page. Your settings are saved in `config.json` in the u
 
 The page, the task logs, the error messages and the command line are in English and French.
 
-- **Web page**: it follows the browser language. The selector at the top of the page fixes it; the choice is saved (`langue_interface` setting) and the task logs follow it too.
-- **Command line**: `--lang`, otherwise the `langue_interface` setting, otherwise the system language.
-- **API**: send `X-Langue: en` (or `fr`) to get error messages in that language.
+- **Web page**: it follows the browser language. The selector at the top of the page fixes it; the choice is saved (`ui_language` setting) and the task logs follow it too.
+- **Command line**: `--lang`, otherwise the `ui_language` setting, otherwise the system language.
+- **API**: send `X-Language: en` (or `fr`) to get error messages in that language.
 
-**Adding a language** takes one file and no code: copy `soustitres/locales/en.json` to `<code>.json` (for example `de.json`) and translate the values. Keep the `{placeholders}` as they are. A text that depends on a number has one form per plural category (`one`, `other`, plus `few` or `many` where the language needs them). A missing text falls back to English, and the new language shows up in the selector by itself. Language names come from the browser, so there is nothing to translate for them. `pytest` checks that every file has the same keys and placeholders as `en.json`.
+**Adding a language** takes one file and no code: copy `subtitles/locales/en.json` to `<code>.json` (for example `de.json`) and translate the values. Keep the `{placeholders}` as they are. A text that depends on a number has one form per plural category (`one`, `other`, plus `few` or `many` where the language needs them). A missing text falls back to English, and the new language shows up in the selector by itself. Language names come from the browser, so there is nothing to translate for them. `pytest` checks that every file has the same keys and placeholders as `en.json`.
 
-The setting names, the command line options and the API fields stay in French: they are identifiers, not text.
+The setting names, the command line options and the API fields are in English: they are identifiers, not text.
 
 ## How it works
 
@@ -136,27 +136,27 @@ The setting names, the command line options and the API fields stay in French: t
 
 ## Local service
 
-`GET /api/sante` reports whether the service is busy, its current activity (`lot 3/22`), the time left and the idle countdown. After 60 minutes without activity the service stops by itself; running work is never interrupted.
+`GET /api/health` reports whether the service is busy, its current activity (`batch 3/22`), the time left and the idle countdown. After 60 minutes without activity the service stops by itself; running work is never interrupted.
 
 ## HTTP API
 
-The web page uses a local JSON API on `http://127.0.0.1:4420`, which scripts can use too. It has no authentication: it only listens on the local machine. Error messages follow the `X-Langue` header (`en`, `fr`). The full list is at the top of `soustitres/web/serveur.py`.
+The web page uses a local JSON API on `http://127.0.0.1:4420`, which scripts can use too. It has no authentication: it only listens on the local machine. Error messages follow the `X-Language` header (`en`, `fr`). The full list is at the top of `subtitles/web/server.py`.
 
 | Request | Purpose |
 | --- | --- |
-| `POST /api/taches` `{source, langues?, traducteur?, transcription?, sortie?, pause?}` | one video or YouTube URL → task |
-| `GET /api/taches/<id>?depuis=N` | state, current step, log lines from N |
-| `POST /api/taches/<id>/traduire` `{traducteur?, langues?}` | continue a task paused before translation |
-| `POST /api/dossier` `{chemin}` then `GET /api/dossier/<id>?videos=1` | list the videos of a folder |
-| `POST /api/lots` `{racine, videos: [{chemin, langue}], langues?, traducteur?, pause?, arret?}` | start a batch |
-| `GET /api/lots/<id>` | progress: `etat`, `phase`, `etape` (step of the running video), counts, time left |
-| `POST /api/lots/charger` `{fichier}` then `POST /api/lots/<id>/reprendre` | resume from a `sous-titres.lot.json` |
-| `POST /api/lots/<id>/suspendre`, `annuler`, `traduire` | control a batch |
-| `GET /api/sante` | busy or not, activity, time left (see above) |
+| `POST /api/tasks` `{source, languages?, translator?, transcription?, output_dir?, pause?}` | one video or YouTube URL → task |
+| `GET /api/tasks/<id>?since=N` | state, current step, log lines from N |
+| `POST /api/tasks/<id>/translate` `{translator?, languages?}` | continue a task paused before translation |
+| `POST /api/folder` `{path}` then `GET /api/folder/<id>?videos=1` | list the videos of a folder |
+| `POST /api/batches` `{root, videos: [{path, language}], languages?, translator?, pause?, stop?}` | start a batch |
+| `GET /api/batches/<id>` | progress: `state`, `phase`, `step` (step of the running video), counts, time left |
+| `POST /api/batches/load` `{file}` then `POST /api/batches/<id>/resume` | resume from a `subtitles.batch.json` |
+| `POST /api/batches/<id>/suspend`, `cancel`, `translate` | control a batch |
+| `GET /api/health` | busy or not, activity, time left (see above) |
 
 ```
-curl -s -X POST localhost:4420/api/lots -H "Content-Type: application/json"   -d '{"racine": "D:/Series/S1", "videos": [{"chemin": "D:/Series/S1/e01.mkv"}], "langues": ["fr"], "pause": false}'
-curl -s localhost:4420/api/lots/<id>
+curl -s -X POST localhost:4420/api/batches -H "Content-Type: application/json"   -d '{"root": "D:/Series/S1", "videos": [{"path": "D:/Series/S1/e01.mkv"}], "languages": ["fr"], "pause": false}'
+curl -s localhost:4420/api/batches/<id>
 ```
 
 ## Development

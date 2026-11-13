@@ -16,18 +16,18 @@ claude = ["anthropic"]
 dev = ["pytest", "ruff"]
 
 [project.scripts]
-sous-titres = "soustitres.__main__:main"
-sous-titres-web = "soustitres.web.__main__:main"
+subtitles = "subtitles.__main__:main"
+subtitles-web = "subtitles.web.__main__:main"
 
 [tool.setuptools.dynamic]
-version = { attr = "soustitres.__version__" }
+version = { attr = "subtitles.__version__" }
 
 [tool.setuptools.packages.find]
-include = ["soustitres*"]
+include = ["subtitles*"]
 
 [tool.setuptools.package-data]
-soustitres = ["config.toml", "locales/*.json"]
-"soustitres.web" = ["static/*"]
+subtitles = ["config.toml", "locales/*.json"]
+"subtitles.web" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -38,4 +38,4 @@ line-length = 160
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "B"]
-ignore = ["E501", "E741", "B905"]  # lignes longues et noms courts : style du projet ; zip : longueurs déjà garanties
+ignore = ["E501", "E741", "B905"]  # long lines and short names: project style; zip: lengths already guaranteed

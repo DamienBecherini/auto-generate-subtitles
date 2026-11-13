@@ -45,7 +45,7 @@ git clone https://github.com/DamienBecherini/auto-generate-subtitles.git
 cd auto-generate-subtitles
 python -m venv .venv
 .venv/bin/pip install .             # Windows : .venv/Scripts/python -m pip install .
-.venv/bin/python -m soustitres.web --ouvrir
+.venv/bin/python -m subtitles.web --open
 ```
 
 **3. Vérifiez la connexion.** Sur la page, ouvrez **Réglages**, puis cliquez sur **Tester** à côté du serveur de transcription. Si votre serveur est sur une autre machine ou demande une clé API, changez son adresse et sa clé à cet endroit.
@@ -57,7 +57,7 @@ Pour traduire, ajoutez un traducteur dans **Réglages**. Pour l'API Claude, lanc
 ## Interface web
 
 ```
-.venv/bin/python -m soustitres.web --ouvrir   # http://127.0.0.1:4420/
+.venv/bin/python -m subtitles.web --open   # http://127.0.0.1:4420/
 ```
 
 La page :
@@ -87,7 +87,7 @@ La page :
   Passer à une API payante redonne l'estimation du coût avant de dépenser.
 - **Dernier lot** : à l'ouverture de la page, un lot resté inachevé à la session précédente (Pause, arrêt du service,
   coupure) est proposé dans un encadré : Reprendre le lot, Changer les réglages d'abord, ou Ignorer.
-- **Fichier de lot** `sous-titres.lot.json` (dans le dossier de sortie si cette destination est cochée, sinon dans
+- **Fichier de lot** `subtitles.batch.json` (dans le dossier de sortie si cette destination est cochée, sinon dans
   le dossier source) : réécrit à chaque changement (sélection, langues, avancement). Après une coupure ou un
   redémarrage, **Reprendre un lot…** (ou le bouton proposé quand on rouvre le dossier) le relit : les vidéos
   terminées sont sautées, les autres repartent de la transcription, immédiate quand `transcription.json` a été gardé.
@@ -101,44 +101,44 @@ La page :
   sortie** (Parcourir… ouvre le sélecteur de dossier). Langues et destination sont mémorisées au clic sur Démarrer.
 - **Pause avant la traduction** (cochée d'office pour Claude ou une API distante, pas pour l'IA locale) : la tâche
   s'arrête après les sous-titres dans la langue parlée et affiche l'**estimation** (requêtes, jetons, prix pour chaque
-  modèle Claude configuré, durée pour l'IA locale ; constantes mesurées dans `[estimation]` de `soustitres/config.toml`, à
+  modèle Claude configuré, durée pour l'IA locale ; constantes mesurées dans `[estimation]` de `subtitles/config.toml`, à
   ajuster quand les prix changent). On choisit alors le traducteur et les langues, puis **Traduire** (confirmation
   pour Claude) ou **Terminer sans traduire**. Le journal donne ensuite les jetons réellement consommés et leur coût.
 - Suivi de la tâche : étapes, journal en direct, **Annuler** (prend effet à la fin de l'étape en cours), puis
-  boutons **Ouvrir le dossier** et **Ouvrir la vidéo**. Historique des 50 dernières tâches (`historique.json`, à côté de `config.json`) ; le journal complet de chaque tâche est écrit à sa fin dans `.travail/<nom>/journal-<date>-<id>.txt` et s'ouvre en accordéon dans sa ligne d'historique (bouton Journal), sans quitter le suivi de la tâche en cours.
+  boutons **Ouvrir le dossier** et **Ouvrir la vidéo**. Historique des 50 dernières tâches (`history.json`, à côté de `config.json`) ; le journal complet de chaque tâche est écrit à sa fin dans `.work/<nom>/log-<date>-<id>.txt` et s'ouvre en accordéon dans sa ligne d'historique (bouton Journal), sans quitter le suivi de la tâche en cours.
 - **Réglages** : dossier de sortie, langue parlée par défaut, commande yt-dlp, taille des lots de traduction, **nettoyage
   du dossier de travail** (voir plus bas, avec le bouton **Nettoyer maintenant** et la taille occupée par catégorie),
   mise en forme des sous-titres, et les listes de **serveurs de transcription** et de **traducteurs** (ajouter,
-  modifier, supprimer, **Tester**, choisir l'actif). Enregistrés dans `config.json` du dossier utilisateur (`%LOCALAPPDATA%\sous-titres` sous Windows, `$XDG_CONFIG_HOME/sous-titres` ou `~/.config/sous-titres` ailleurs), qui recouvre
-  les valeurs par défaut de `soustitres/config.toml`.
+  modifier, supprimer, **Tester**, choisir l'actif). Enregistrés dans `config.json` du dossier utilisateur (`%LOCALAPPDATA%\subtitles` sous Windows, `$XDG_CONFIG_HOME/subtitles` ou `~/.config/subtitles` ailleurs), qui recouvre
+  les valeurs par défaut de `subtitles/config.toml`.
 
-**Arrêt automatique.** Après 60 min sans activité (`[web] inactivite_min`, réglable dans Réglages, 0 = jamais), le
+**Arrêt automatique.** Après 60 min sans activité (`[web] idle_min`, réglable dans Réglages, 0 = jamais), le
 service s'arrête et coupe le serveur de transcription local qu'il avait démarré. Le délai court à partir de la fin du
 travail : une tâche ou un lot qui tourne n'est jamais interrompu. Un onglet resté ouvert ne compte pas comme une
 activité. Une tâche ou un lot **en attente** (pause avant traduction, Pause) peut être coupé : le lot se reprend
 par son fichier, une vidéo seule se relance, et dans les deux cas `transcription.json` évite de retranscrire.
-`GET /api/sante` suit le contrat « service local » : occupé ou non, activité en cours (`lot 3/22`), temps avant la fin du
+`GET /api/health` suit le contrat « service local » : occupé ou non, activité en cours (`lot 3/22`), temps avant la fin du
 travail et avant l'arrêt.
 
 **Temps restant.** Calculé par le service et affiché sur la page. Il part de la
 durée de chaque vidéo (ou du nombre de lignes pour une traduction) et de la vitesse observée sur les vidéos du lot. Avant
-la première mesure, il reprend la vitesse retenue des sessions précédentes (`vitesses.json`, à côté de `config.json`),
-sinon le champ `vitesse` du serveur de transcription. Une vidéo reprise en quelques secondes n'est pas comptée.
+la première mesure, il reprend la vitesse retenue des sessions précédentes (`speeds.json`, à côté de `config.json`),
+sinon le champ `speed` du serveur de transcription. Une vidéo reprise en quelques secondes n'est pas comptée.
 
 **Clés d'API.** Jamais saisies ni affichées : le champ « Clé » est une référence `env:<NOM>` (variable
 d'environnement), `file:<chemin>` (fichier qui contient la clé, hors du dépôt) ou `sops:<fichier>#<NOM>` (déchiffrée
 au moment de l'usage, si sops est installé). Une valeur en clair est refusée à l'enregistrement.
 
 **Vos réglages** (dossier de sortie, serveurs, traducteurs) sont dans `config.json` du dossier utilisateur, qui recouvre
-les valeurs par défaut de `soustitres/config.toml` : ce dernier ne contient que des exemples.
+les valeurs par défaut de `subtitles/config.toml` : ce dernier ne contient que des exemples.
 
-**IA locale.** Un traducteur compatible OpenAI peut indiquer une adresse de supervision (`POST /api/ia/demarrer`) qui démarre le modèle à la demande et l'arrête à la fin de la tâche. Ce réglage est facultatif : sans lui, le serveur doit déjà tourner.
+**IA locale.** Un traducteur compatible OpenAI peut indiquer une adresse de supervision (`POST /api/ai/start`) qui démarre le modèle à la demande et l'arrête à la fin de la tâche. Ce réglage est facultatif : sans lui, le serveur doit déjà tourner.
 
 ## Chaîne
 
 1. **Source.** Adresse : `yt-dlp` (commande réglable, y compris au travers de WSL) avec `-o` remplacé par le dossier de sortie ; une
    vidéo déjà présente n'est pas retéléchargée. Puis, comme pour un fichier, `ffmpeg` extrait la piste audio
-   (copie du flux, sans réencodage quand le conteneur le permet) dans `<sortie>/.travail/<nom>/`.
+   (copie du flux, sans réencodage quand le conteneur le permet) dans `<output_dir>/.work/<nom>/`.
 2. **Transcription.** L'audio part au serveur de transcription (`POST /v1/audio/transcriptions`,
    `response_format=verbose_json`) qui renvoie chaque **mot avec son début et sa fin** sur la ligne de temps de la
    vidéo (dépôt `transcription-handy-like` ≥ 0.2, mode horodaté). Résultat dans `transcription.json`.
@@ -146,21 +146,21 @@ les valeurs par défaut de `soustitres/config.toml` : ce dernier ne contient que
    × 42 caractères et 6 s au plus, coupés de préférence après une ponctuation ou dans une pause ; chaque
    sous-titre reste au moins 1 s (ou le temps de le lire à 17 caractères/s) sans empiéter sur le suivant.
    Sous-titres dans la langue d'origine : `<nom>.<langue>.srt` (pour vérifier la synchronisation).
-4. **Traduction**, une par langue cible (`langues_cibles`, la langue parlée étant sautée). Lots de 25 lignes
+4. **Traduction**, une par langue cible (`target_languages`, la langue parlée étant sautée). Lots de 25 lignes
    numérotées avec les deux lignes précédentes en contexte ; le modèle doit rendre les mêmes numéros (lot
    incomplet : renvoyé, puis lots plus petits ; en dernier recours la ligne reste dans sa langue, signalée). Les
    **temps ne changent pas** ; un texte devenu trop long pour deux lignes est partagé en deux sous-titres au
-   prorata des caractères. Résultat : `traduction.<code>.json`, `<nom>.<code>.srt`, `<nom>.<code>.vtt`.
+   prorata des caractères. Résultat : `translation.<code>.json`, `<nom>.<code>.srt`, `<nom>.<code>.vtt`.
 5. **Fichiers.** Chaque `.srt` (langue parlée et langues cibles) est copié au nom de la vidéo + code de langue
    (`Ma vidéo.en.srt`, `Ma vidéo.fr.srt`) **à côté de la vidéo** (VLC et la plupart des lecteurs les chargent
    seuls) et/ou **dans le dossier de sortie**, selon la table `[destination]` (ou les cases de la page).
-6. **Nettoyage** du dossier de travail selon la table `[nettoyage]` : par défaut l'audio extrait et les copies
-   `.srt`/`.vtt` sont supprimés ; `transcription.json` et `traduction.<code>.json` sont gardés (ajouter une langue
+6. **Nettoyage** du dossier de travail selon la table `[cleanup]` : par défaut l'audio extrait et les copies
+   `.srt`/`.vtt` sont supprimés ; `transcription.json` et `translation.<code>.json` sont gardés (ajouter une langue
    ou changer la mise en forme sans retranscrire ni retraduire), les journaux aussi, mais ceux de plus de 48 h
-   (`journaux_age_h`) sont purgés au démarrage de l'interface. Si aucune destination n'est cochée, les `.srt` du
-   dossier de travail sont gardés (seule copie). `--sans-nettoyage` en ligne de commande garde tout.
+   (`logs_age_h`) sont purgés au démarrage de l'interface. Si aucune destination n'est cochée, les `.srt` du
+   dossier de travail sont gardés (seule copie). `--no-cleanup` en ligne de commande garde tout.
 
-Chaque étape est sautée si son résultat existe déjà (case « Refaire… » ou `--refaire` pour recommencer) ; une
+Chaque étape est sautée si son résultat existe déjà (case « Refaire… » ou `--redo` pour recommencer) ; une
 vidéo dont l'audio a été nettoyé mais dont `transcription.json` existe n'est ni réextraite ni retranscrite.
 
 Un `.srt` modifié à la main depuis sa création n'est pas écrasé (sauf « Refaire… ») ; le doublage et le MKV utilisent alors cette version.
@@ -174,8 +174,8 @@ pastilles, relues sur le disque : une étape faite n'est pas refaite, même apr�
   et les étapes s'y adaptent. Un lot peut changer d'objectif ensuite : passer au doublage ne lance rien avant « Reprendre » ou « Continuer ».
 - « Continuer » fait passer un seul épisode jusqu'au bout de ce que le lot doit produire, avant les autres.
 - La relecture IA (Claude) repère les noms propres déformés. Un nom n'est soumis qu'une fois par lot. Rien n'est corrigé sans
-  validation : les noms acceptés vont dans `sous-titres.glossaire.json` et `transcription.json` n'est jamais réécrit.
-- Le doublage (table `[doublage]` des réglages, désactivé par défaut) clone la voix d'origine phrase par phrase dans la
+  validation : les noms acceptés vont dans `subtitles.glossary.json` et `transcription.json` n'est jamais réécrit.
+- Le doublage (table `[dubbing]` des réglages, désactivé par défaut) clone la voix d'origine phrase par phrase dans la
   première langue traduite. Il demande un environnement Python séparé avec `torch`, `demucs`, `omnivoice`, `soundfile`,
   `num2words`, ainsi que `ffmpeg` et une carte graphique (environ 4,3 Go de mémoire vidéo, 8 min 30 pour 30 min de vidéo).
   Un clonage de voix suppose le droit d'utiliser la voix et le contenu d'origine.
@@ -187,31 +187,31 @@ pastilles, relues sur le disque : une étape faite n'est pas refaite, même apr�
 
 La page, le journal des tâches, les messages d'erreur et la ligne de commande existent en français et en anglais.
 
-- **Page web** : elle suit la langue du navigateur. Le sélecteur en haut de la page l'impose ; le choix est enregistré (réglage `langue_interface`) et le journal des tâches le suit aussi.
-- **Ligne de commande** : `--lang`, sinon le réglage `langue_interface`, sinon la langue du système.
-- **API** : l'en-tête `X-Langue: fr` (ou `en`) donne les messages d'erreur dans cette langue.
+- **Page web** : elle suit la langue du navigateur. Le sélecteur en haut de la page l'impose ; le choix est enregistré (réglage `ui_language`) et le journal des tâches le suit aussi.
+- **Ligne de commande** : `--lang`, sinon le réglage `ui_language`, sinon la langue du système.
+- **API** : l'en-tête `X-Language: fr` (ou `en`) donne les messages d'erreur dans cette langue.
 
-**Ajouter une langue** demande un fichier, pas de code : copier `soustitres/locales/en.json` sous `<code>.json` (par exemple `de.json`) et traduire les valeurs, en gardant les `{paramètres}` tels quels. Un texte qui dépend d'un nombre a une forme par catégorie de pluriel (`one`, `other`, plus `few` ou `many` pour les langues qui en ont besoin). Un texte absent retombe sur l'anglais, et la langue apparaît d'elle-même dans le sélecteur. Les noms de langues viennent du navigateur : rien à traduire pour eux. `pytest` vérifie que chaque fichier a les mêmes clés et les mêmes paramètres que `en.json`.
+**Ajouter une langue** demande un fichier, pas de code : copier `subtitles/locales/en.json` sous `<code>.json` (par exemple `de.json`) et traduire les valeurs, en gardant les `{paramètres}` tels quels. Un texte qui dépend d'un nombre a une forme par catégorie de pluriel (`one`, `other`, plus `few` ou `many` pour les langues qui en ont besoin). Un texte absent retombe sur l'anglais, et la langue apparaît d'elle-même dans le sélecteur. Les noms de langues viennent du navigateur : rien à traduire pour eux. `pytest` vérifie que chaque fichier a les mêmes clés et les mêmes paramètres que `en.json`.
 
-Les noms des réglages, les options de la ligne de commande et les champs de l'API restent en français : ce sont des identifiants, pas du texte.
+Les noms des réglages, les options de la ligne de commande et les champs de l'API sont en anglais : ce sont des identifiants, pas du texte.
 
 ## Ligne de commande
 
 ```
-.venv/bin/python -m soustitres "https://www.youtube.com/watch?v=…"
-.venv/bin/python -m soustitres "ma video.mp4" --transcription local --traducteur claude
-.venv/bin/python -m soustitres "D:/Séries/Saison 1"   # toutes les vidéos du dossier, en lot
-.venv/bin/python -m soustitres --liste          # moteurs configurés
+.venv/bin/python -m subtitles "https://www.youtube.com/watch?v=…"
+.venv/bin/python -m subtitles "ma video.mp4" --transcription local --translator claude
+.venv/bin/python -m subtitles "D:/Séries/Saison 1"   # toutes les vidéos du dossier, en lot
+.venv/bin/python -m subtitles --list          # moteurs configurés
 ```
 
-Options : `--sortie`, `--langue en` (langue parlée), `--langues fr,de` (langues cibles), `--transcription <id>`,
-`--traducteur <id>`, `--refaire`, `--sans-nettoyage`, `--lang fr` (langue des messages). Le traducteur Claude demande le SDK `anthropic` (`pip install ".[claude]"`).
+Options : `--output-dir`, `--language en` (langue parlée), `--languages fr,de` (langues cibles), `--transcription <id>`,
+`--translator <id>`, `--redo`, `--no-cleanup`, `--lang fr` (langue des messages). Le traducteur Claude demande le SDK `anthropic` (`pip install ".[claude]"`).
 
-Un dossier devient un lot, comme dans l'interface web : `sous-titres.lot.json` note l'avancement, et relancer la même
+Un dossier devient un lot, comme dans l'interface web : `subtitles.batch.json` note l'avancement, et relancer la même
 commande après une coupure (Ctrl+C, panne) reprend le lot. Les vidéos faites sont sautées, les autres repartent de leur
-transcription conservée. La commande ne fait pas de pause avant la traduction. Options des lots : `--jusqua
-traduction|doublage|assemblage` (dernière étape, la traduction par défaut), `--nouveau-lot` (ignore le fichier de lot
-existant et refait l'inventaire du dossier), `--sans-sous-dossiers`. On peut aussi donner un fichier `.lot.json`. Code de
+transcription conservée. La commande ne fait pas de pause avant la traduction. Options des lots : `--until
+translation|dubbing|mux` (dernière étape, la traduction par défaut), `--new-batch` (ignore le fichier de lot
+existant et refait l'inventaire du dossier), `--no-subfolders`. On peut aussi donner un fichier `.batch.json`. Code de
 sortie : 0 si toutes les vidéos sont faites, 1 sinon. Ne pas mener le même lot en même temps dans l'interface web.
 
 Vérifier dans VLC : ouvrir la vidéo, le `.fr.srt` du même nom se charge seul (sinon Sous-titres > Ajouter un
@@ -221,23 +221,23 @@ problème de cadence (les temps viennent du modèle, pas d'une estimation).
 ## API
 
 L'interface web s'appuie sur une API JSON locale, sur `http://127.0.0.1:4420`, utilisable aussi par des scripts. Elle n'a
-pas d'authentification : elle n'écoute que sur la machine elle-même. Les messages d'erreur suivent l'en-tête `X-Langue` (`fr`, `en`). La liste complète est en tête de `soustitres/web/serveur.py`.
+pas d'authentification : elle n'écoute que sur la machine elle-même. Les messages d'erreur suivent l'en-tête `X-Language` (`fr`, `en`). La liste complète est en tête de `subtitles/web/server.py`.
 
 | Requête | Rôle |
 | --- | --- |
-| `POST /api/taches` `{source, langues?, traducteur?, transcription?, sortie?, pause?}` | une vidéo ou une adresse YouTube → tâche |
-| `GET /api/taches/<id>?depuis=N` | état, étape en cours, lignes du journal à partir de N |
-| `POST /api/taches/<id>/traduire` `{traducteur?, langues?}` | suite d'une tâche en pause avant la traduction |
-| `POST /api/dossier` `{chemin}` puis `GET /api/dossier/<id>?videos=1` | inventaire des vidéos d'un dossier |
-| `POST /api/lots` `{racine, videos: [{chemin, langue}], langues?, traducteur?, pause?, arret?}` | lancer un lot |
-| `GET /api/lots/<id>` | avancement : `etat`, `phase`, `etape` (étape de la vidéo en cours), comptes, temps restant |
-| `POST /api/lots/charger` `{fichier}` puis `POST /api/lots/<id>/reprendre` | reprendre d'après un `sous-titres.lot.json` |
-| `POST /api/lots/<id>/suspendre`, `annuler`, `traduire` | piloter un lot |
-| `GET /api/sante` | occupé ou non, activité, temps restant (voir plus haut) |
+| `POST /api/tasks` `{source, languages?, translator?, transcription?, output_dir?, pause?}` | une vidéo ou une adresse YouTube → tâche |
+| `GET /api/tasks/<id>?since=N` | état, étape en cours, lignes du journal à partir de N |
+| `POST /api/tasks/<id>/translate` `{translator?, languages?}` | suite d'une tâche en pause avant la traduction |
+| `POST /api/folder` `{path}` puis `GET /api/folder/<id>?videos=1` | inventaire des vidéos d'un dossier |
+| `POST /api/batches` `{root, videos: [{path, language}], languages?, translator?, pause?, stop?}` | lancer un lot |
+| `GET /api/batches/<id>` | avancement : `state`, `phase`, `step` (étape de la vidéo en cours), comptes, temps restant |
+| `POST /api/batches/load` `{file}` puis `POST /api/batches/<id>/resume` | reprendre d'après un `subtitles.batch.json` |
+| `POST /api/batches/<id>/suspend`, `cancel`, `translate` | piloter un lot |
+| `GET /api/health` | occupé ou non, activité, temps restant (voir plus haut) |
 
 ```
-curl -s -X POST localhost:4420/api/lots -H "Content-Type: application/json"   -d '{"racine": "D:/Séries/S1", "videos": [{"chemin": "D:/Séries/S1/e01.mkv"}], "langues": ["fr"], "pause": false}'
-curl -s localhost:4420/api/lots/<id>
+curl -s -X POST localhost:4420/api/batches -H "Content-Type: application/json"   -d '{"root": "D:/Séries/S1", "videos": [{"path": "D:/Séries/S1/e01.mkv"}], "languages": ["fr"], "pause": false}'
+curl -s localhost:4420/api/batches/<id>
 ```
 
 ## Prérequis
