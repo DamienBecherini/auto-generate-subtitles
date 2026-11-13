@@ -74,10 +74,13 @@ Tested with [transcription-handy-like](https://github.com/DamienBecherini/transc
 .venv/bin/python -m soustitres.web --ouvrir        # web page on http://127.0.0.1:4420/
 .venv/bin/python -m soustitres "https://www.youtube.com/watch?v=..."
 .venv/bin/python -m soustitres "my video.mp4" --langues fr,de
+.venv/bin/python -m soustitres "D:/Series/Season 1"      # every video in the folder, as a batch
 .venv/bin/python -m soustitres --liste              # configured engines
 ```
 
 Command line options: `--sortie`, `--langue en` (spoken language), `--langues fr,de` (target languages), `--transcription <id>`, `--traducteur <id>`, `--refaire`, `--sans-nettoyage`.
+
+A folder becomes a batch, the same as in the web page: `sous-titres.lot.json` records its progress, and running the same command after an interruption (Ctrl+C, power cut) resumes it. Finished videos are skipped and the others reuse their saved transcription. The command does not pause before translation. Batch options: `--jusqua traduction|doublage|assemblage` (last step, translation by default), `--nouveau-lot` (ignore the existing batch file and list the folder again), `--sans-sous-dossiers`. You can also pass a `.lot.json` file. The exit code is 0 when every video is done, 1 otherwise. Don't run the same batch in the web page at the same time.
 
 The interface and options are in French for now.
 
@@ -124,6 +127,27 @@ Open **Réglages** on the page. Your settings are saved in `config.json` in the 
 ## Local service
 
 `GET /api/sante` reports whether the service is busy, its current activity (`lot 3/22`), the time left and the idle countdown. After 60 minutes without activity the service stops by itself; running work is never interrupted.
+
+## HTTP API
+
+The web page uses a local JSON API on `http://127.0.0.1:4420`, which scripts can use too. It has no authentication: it only listens on the local machine. The full list is at the top of `soustitres/web/serveur.py`.
+
+| Request | Purpose |
+| --- | --- |
+| `POST /api/taches` `{source, langues?, traducteur?, transcription?, sortie?, pause?}` | one video or YouTube URL → task |
+| `GET /api/taches/<id>?depuis=N` | state, current step, log lines from N |
+| `POST /api/taches/<id>/traduire` `{traducteur?, langues?}` | continue a task paused before translation |
+| `POST /api/dossier` `{chemin}` then `GET /api/dossier/<id>?videos=1` | list the videos of a folder |
+| `POST /api/lots` `{racine, videos: [{chemin, langue}], langues?, traducteur?, pause?, arret?}` | start a batch |
+| `GET /api/lots/<id>` | progress: `etat`, `phase`, `etape` (step of the running video), counts, time left |
+| `POST /api/lots/charger` `{fichier}` then `POST /api/lots/<id>/reprendre` | resume from a `sous-titres.lot.json` |
+| `POST /api/lots/<id>/suspendre`, `annuler`, `traduire` | control a batch |
+| `GET /api/sante` | busy or not, activity, time left (see above) |
+
+```
+curl -s -X POST localhost:4420/api/lots -H "Content-Type: application/json"   -d '{"racine": "D:/Series/S1", "videos": [{"chemin": "D:/Series/S1/e01.mkv"}], "langues": ["fr"], "pause": false}'
+curl -s localhost:4420/api/lots/<id>
+```
 
 ## Development
 

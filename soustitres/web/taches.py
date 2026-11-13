@@ -236,7 +236,7 @@ class Gestionnaire:
         liste = [{"chemin": v["chemin"], "nom": Path(v["chemin"]).name, "langue": v.get("langue") or "", "etat": "a_faire",
                   "tache": None, "nb": None, "langue_detectee": "", "erreur": ""} for v in videos]
         lot = Lot(racine, liste, options, fichier)
-        lot.apres_enregistrement = self._noter_dernier_lot
+        lot.apres_enregistrement, lot.etape_de = self._noter_dernier_lot, self._etape_tache
         with self.verrou:
             self.lots[lot.id] = lot
         self._reperer_transcrites(lot)
@@ -279,7 +279,7 @@ class Gestionnaire:
 
     def charger_lot(self, fichier: str) -> Lot:
         lot = Lot.depuis_fichier(Path(fichier))
-        lot.apres_enregistrement = self._noter_dernier_lot
+        lot.apres_enregistrement, lot.etape_de = self._noter_dernier_lot, self._etape_tache
         for autre in list(self.lots.values()):                # un seul lot par fichier
             if autre.fichier == lot.fichier and autre.etat not in ("termine", "annule"):
                 self.lot_annuler(autre.id)                    # hors du verrou : annuler une tâche l'archive, qui le prend
@@ -326,6 +326,10 @@ class Gestionnaire:
     def oublier_dernier_lot(self):
         """« Ignorer » : le lot n'est plus proposé ; son fichier reste, pour « Reprendre un lot… »."""
         FICHIER_DERNIER_LOT.unlink(missing_ok=True)
+
+    def _etape_tache(self, ident: str | None) -> str:
+        t = self.taches.get(ident or "")
+        return t.etape if t and t.etat == "en_cours" else ""
 
     def lot(self, ident: str) -> Lot | None:
         return self.lots.get(ident)

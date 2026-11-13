@@ -811,13 +811,17 @@ async function majParallele(l) {
   }
 }
 
+const ETAPES_LOT = { source: "préparation", transcription: "transcription", decoupe: "découpe", relecture: "relecture IA", traduction: "traduction",
+  fin: "écriture des fichiers", doublage: "doublage", assemblage: "assemblage" };
+
 async function rafraichirLot() {
   if (!lotCourant) return;
   let l;
   try { l = await api("GET", `/api/lots/${lotCourant}`); } catch (err) { return; }
   $("#lot-racine").textContent = l.racine;
   const etat = $("#lot-etat");
-  etat.textContent = { en_cours: { 1: "transcription en cours", 2: "traduction en cours", 3: "doublage en cours" }[l.phase], suspendu: "en pause", attente_traduction: "en attente de traduction", termine: "terminé", annule: "annulé" }[l.etat] || l.etat;
+  // L'étape réelle de la vidéo en cours : sans pause, la phase 1 va jusqu'à la traduction.
+  etat.textContent = { en_cours: (ETAPES_LOT[l.etape] || { 1: "transcription", 2: "traduction", 3: "doublage" }[l.phase]) + " en cours", suspendu: "en pause", attente_traduction: "en attente de traduction", termine: "terminé", annule: "annulé" }[l.etat] || l.etat;
   etat.className = "etat " + l.etat;
   $("#btn-lot-suspendre").hidden = l.etat !== "en_cours";
   $("#btn-lot-reprendre").hidden = l.etat !== "suspendu";

@@ -188,15 +188,45 @@ pastilles, relues sur le disque : une étape faite n'est pas refaite, même apr�
 ```
 .venv/bin/python -m soustitres "https://www.youtube.com/watch?v=…"
 .venv/bin/python -m soustitres "ma video.mp4" --transcription local --traducteur claude
+.venv/bin/python -m soustitres "D:/Séries/Saison 1"   # toutes les vidéos du dossier, en lot
 .venv/bin/python -m soustitres --liste          # moteurs configurés
 ```
 
 Options : `--sortie`, `--langue en` (langue parlée), `--langues fr,de` (langues cibles), `--transcription <id>`,
 `--traducteur <id>`, `--refaire`, `--sans-nettoyage`. Le traducteur Claude demande le SDK `anthropic` (`pip install ".[claude]"`).
 
+Un dossier devient un lot, comme dans l'interface web : `sous-titres.lot.json` note l'avancement, et relancer la même
+commande après une coupure (Ctrl+C, panne) reprend le lot. Les vidéos faites sont sautées, les autres repartent de leur
+transcription conservée. La commande ne fait pas de pause avant la traduction. Options des lots : `--jusqua
+traduction|doublage|assemblage` (dernière étape, la traduction par défaut), `--nouveau-lot` (ignore le fichier de lot
+existant et refait l'inventaire du dossier), `--sans-sous-dossiers`. On peut aussi donner un fichier `.lot.json`. Code de
+sortie : 0 si toutes les vidéos sont faites, 1 sinon. Ne pas mener le même lot en même temps dans l'interface web.
+
 Vérifier dans VLC : ouvrir la vidéo, le `.fr.srt` du même nom se charge seul (sinon Sous-titres > Ajouter un
 fichier). Regarder le début, le milieu et la fin : un décalage qui grandirait au fil de la vidéo signalerait un
 problème de cadence (les temps viennent du modèle, pas d'une estimation).
+
+## API
+
+L'interface web s'appuie sur une API JSON locale, sur `http://127.0.0.1:4420`, utilisable aussi par des scripts. Elle n'a
+pas d'authentification : elle n'écoute que sur la machine elle-même. La liste complète est en tête de `soustitres/web/serveur.py`.
+
+| Requête | Rôle |
+| --- | --- |
+| `POST /api/taches` `{source, langues?, traducteur?, transcription?, sortie?, pause?}` | une vidéo ou une adresse YouTube → tâche |
+| `GET /api/taches/<id>?depuis=N` | état, étape en cours, lignes du journal à partir de N |
+| `POST /api/taches/<id>/traduire` `{traducteur?, langues?}` | suite d'une tâche en pause avant la traduction |
+| `POST /api/dossier` `{chemin}` puis `GET /api/dossier/<id>?videos=1` | inventaire des vidéos d'un dossier |
+| `POST /api/lots` `{racine, videos: [{chemin, langue}], langues?, traducteur?, pause?, arret?}` | lancer un lot |
+| `GET /api/lots/<id>` | avancement : `etat`, `phase`, `etape` (étape de la vidéo en cours), comptes, temps restant |
+| `POST /api/lots/charger` `{fichier}` puis `POST /api/lots/<id>/reprendre` | reprendre d'après un `sous-titres.lot.json` |
+| `POST /api/lots/<id>/suspendre`, `annuler`, `traduire` | piloter un lot |
+| `GET /api/sante` | occupé ou non, activité, temps restant (voir plus haut) |
+
+```
+curl -s -X POST localhost:4420/api/lots -H "Content-Type: application/json"   -d '{"racine": "D:/Séries/S1", "videos": [{"chemin": "D:/Séries/S1/e01.mkv"}], "langues": ["fr"], "pause": false}'
+curl -s localhost:4420/api/lots/<id>
+```
 
 ## Prérequis
 

@@ -28,6 +28,7 @@ class Lot:
         self.creee = time.time()
         self.fin = None
         self.apres_enregistrement = None       # rappel du gestionnaire (mémorise le dernier lot pour la session suivante)
+        self.etape_de = None                   # rappel du gestionnaire : étape en cours d'une tâche (id → « transcription »…)
         self.passes: dict[int, list[tuple[float, float]]] = {}   # phase → [(poids, secondes)] des vidéos traitées
         self.simultanees = 1                   # vidéos traitées en même temps (plusieurs : traduction par une API distante)
         self.verrou = threading.RLock()        # les tâches parallèles mettent à jour le lot et réécrivent son fichier
@@ -40,9 +41,12 @@ class Lot:
     def resume(self) -> dict:
         comptes = {e: sum(1 for v in self.videos if v["etat"] == e) for e in ETATS_VIDEO}
         mesures = self.passes.get(self.phase, [])[-10:]
-        return {**self.vers_dict(), "comptes": comptes, "total": len(self.videos), "simultanees": self.simultanees,
+        courante = self.en_cours()
+        # Sans pause, une vidéo de la phase 1 va jusqu'à la traduction : la phase seule ne dit pas où elle en est.
+        etape = (self.etape_de(courante.get("tache")) or "") if courante and self.etape_de else ""
+        return {**self.vers_dict(), "comptes": comptes, "etape": etape, "total": len(self.videos), "simultanees": self.simultanees,
                 "duree_moyenne_s": round(sum(s for _, s in mesures) / len(mesures)) if mesures else None,
-                "courante": next((v["chemin"] for v in self.videos if v["etat"] == "en_cours"), None),
+                "courante": courante["chemin"] if courante else None,
                 "reste_s": self.reste_s(temps.taux_connu(self.phase, self.options) if self.etat == "en_cours" else None),
                 "doublage_s": self.doublage_a_faire_s()}
 

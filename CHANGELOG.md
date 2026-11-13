@@ -13,4 +13,5 @@ First public version.
 - AI review of proper names, validated by you before translation, and a glossary shared by the batch.
 - Optional voice dubbing (off by default) and a multi-track MKV next to the video, which can replace the original once checked.
 - Subtitle files edited by hand are no longer overwritten.
+- Local JSON API documented in the README; the batch status shows the running video's actual step (transcription, translation…).
 - Health endpoint following the "local service" contract: busy state, activity, remaining time, idle shutdown.
