@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import i18n, source
+from .states import ScanState
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".mpg", ".mpeg", ".ts", ".wmv", ".flv"}
 SUBTITLE_EXTENSIONS = {".srt", ".vtt"}
@@ -104,7 +105,7 @@ class FolderScan:
         self.root = Path(root)
         self.recursive = recursive
         self.workers = workers
-        self.state = "scanning"                # scanning, languages, done, cancelled, error
+        self.state = ScanState.SCANNING
         self.seen = 0
         self.done = 0
         self.videos: list[dict] | None = None
@@ -134,14 +135,14 @@ class FolderScan:
         try:
             videos = scan(self.root, self.recursive, self._cancelled.is_set, lambda n: setattr(self, "seen", n))
             if self._cancelled.is_set():
-                self.state = "cancelled"
+                self.state = ScanState.CANCELLED
                 return
-            self.seen, self.videos, self.state = len(videos), videos, "languages"
+            self.seen, self.videos, self.state = len(videos), videos, ScanState.LANGUAGES
             with ThreadPoolExecutor(self.workers) as pool:
                 list(pool.map(self._read_language, videos))
-            self.state = "done"
+            self.state = ScanState.DONE
         except OSError as e:
-            self.state, self.error = "error", str(e)
+            self.state, self.error = ScanState.ERROR, str(e)
 
     def to_dict(self, with_videos: bool = False) -> dict:
         with self._lock:

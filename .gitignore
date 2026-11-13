@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
+*.egg-info/
 # Vidéos et audio de travail : jamais dans le dépôt
 *.mp4
 *.mkv

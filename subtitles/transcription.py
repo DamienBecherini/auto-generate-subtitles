@@ -33,17 +33,14 @@ def health_state(d) -> str:
 
 
 def transcribe(server_url: str, audio: Path, language: str | None = None, timeout_s: int = 7200, key: str = "") -> dict:
-    data = audio.read_bytes()
     sep = uuid.uuid4().hex
     fields = [("response_format", "verbose_json"), ("timestamp_granularities[]", "word")]
     if language:
         fields.append(("language", language))
-    body = b""
-    for name, val in fields:
-        body += f'--{sep}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{val}\r\n'.encode()
-    body += (f'--{sep}\r\nContent-Disposition: form-data; name="file"; filename="{audio.name}"\r\n'
-             f"Content-Type: application/octet-stream\r\n\r\n").encode()
-    body += data + f"\r\n--{sep}--\r\n".encode()
+    parts = [f'--{sep}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{val}\r\n'.encode() for name, val in fields]
+    parts.append((f'--{sep}\r\nContent-Disposition: form-data; name="file"; filename="{audio.name}"\r\n'
+                  f"Content-Type: application/octet-stream\r\n\r\n").encode())
+    body = b"".join([*parts, audio.read_bytes(), f"\r\n--{sep}--\r\n".encode()])   # a single copy of the audio
     req = urllib.request.Request(server_url.rstrip("/") + "/v1/audio/transcriptions", data=body, method="POST",
                                  headers={"Content-Type": f"multipart/form-data; boundary={sep}"})
     if key:
@@ -75,7 +72,7 @@ def health(server_url: str, timeout_s: int = 5) -> str:
     except urllib.error.HTTPError:
         return i18n.t("state.responds_no_health")
     except ValueError:
-        return "répond"
+        return i18n.t("state.responds")
     except (urllib.error.URLError, OSError) as e:
         raise TranscriptionError(i18n.t("err.transcription_unreachable", url=server_url, detail=e)) from e
     state = health_state(d)

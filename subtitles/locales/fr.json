@@ -48,6 +48,7 @@
  "err.batch_file_not_found": "fichier de lot introuvable : {path}",
  "err.batch_file_unreadable": "fichier de lot illisible : {error}",
  "err.body_too_large": "corps trop grand",
+ "err.foreign_request": "requête refusée : elle ne vient pas de la page de l'interface",
  "err.cancelled": "annulée",
  "err.cannot_open": "ouverture impossible sur ce système : {error}",
  "err.download_missing": "fichier attendu absent après le téléchargement : {path}",

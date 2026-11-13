@@ -1,23 +1,24 @@
 import threading
 
-from subtitles import __main__ as cli, batch_cli, config, folder
-from subtitles.web import tasks
+from subtitles import __main__ as cli
+from subtitles import batch_cli, config, folder
+from subtitles.web import batch_manager
 from subtitles.web.batches import Batch
+from subtitles.web.manager import Manager
+from subtitles.web.tasks import TaskQueue
 
 
 def manager(tmp_path, monkeypatch, run):
     """Manager whose loop runs, but where each task is simulated by `run(t)` (nothing is transcribed)."""
-    monkeypatch.setattr(tasks, "LAST_BATCH_FILE", tmp_path / "last_batch.json")
-    g = tasks.Manager.__new__(tasks.Manager)
-    g.tasks, g.order, g.batches, g.history = {}, [], {}, []
-    g.lock, g.wake = threading.Lock(), threading.Event()
+    monkeypatch.setattr(batch_manager, "LAST_BATCH_FILE", tmp_path / "last_batch.json")
+    g = Manager(TaskQueue(history=[]), start=False)
 
     def simulate(t):
         t.state = "running"
         run(t)
-        g._update_batch(t)
-    monkeypatch.setattr(g, "_run", simulate)
-    threading.Thread(target=g._loop, daemon=True).start()
+        g.batches.task_changed(t)
+    monkeypatch.setattr(g.queue, "_run", simulate)
+    threading.Thread(target=g.queue._loop, daemon=True).start()
     return g
 
 

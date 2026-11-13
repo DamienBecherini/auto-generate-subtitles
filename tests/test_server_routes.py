@@ -24,9 +24,9 @@ def base(tmp_path, monkeypatch):
     httpd.server_close()
 
 
-def call(url, method="GET", body=None, raw=None):
+def call(url, method="GET", body=None, raw=None, headers=None):
     data = raw if raw is not None else (None if body is None else json.dumps(body).encode())
-    req = urllib.request.Request(url, data=data, method=method, headers={"X-Language": "fr"})
+    req = urllib.request.Request(url, data=data, method=method, headers={"X-Language": "fr", **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             return r.status, r.headers.get("Content-Type"), r.read()
@@ -34,8 +34,8 @@ def call(url, method="GET", body=None, raw=None):
         return e.code, e.headers.get("Content-Type"), e.read()
 
 
-def js(url, method="GET", body=None, raw=None):
-    code, _type, data = call(url, method, body, raw)
+def js(url, method="GET", body=None, raw=None, headers=None):
+    code, _type, data = call(url, method, body, raw, headers)
     return code, json.loads(data)
 
 
@@ -136,3 +136,30 @@ def test_router_parameters_and_order():
     assert server.resolve("GET", "/static/css/app.css") == (server.static_file, {"name": "css/app.css"})
     routes = [(m, r.pattern) for m, r, _fn in server.ROUTES]
     assert len(routes) == len(set(routes)), "route declared twice"
+
+
+def test_a_page_of_another_site_cannot_use_the_api(base, tmp_path):
+    """CSRF: a site open in the browser posts to the API (text/plain: no preflight). Here, a command to run."""
+    url, saved = base
+    marker = tmp_path / "run.txt"
+    engine = {"url": "http://127.0.0.1:9", "command": ["python", "-c", f"open(r'{marker}', 'w')"]}
+    for origin in ("https://evil.example", "null", "http://127.0.0.1:1"):
+        code, d = js(url + "/api/test", "POST", raw=json.dumps({"kind": "transcription", "engine": engine}).encode(),
+                     headers={"Content-Type": "text/plain", "Origin": origin})
+        assert code == 403 and "refusée" in d["error"], origin
+    assert js(url + "/api/config", "PUT", {"x": 1}, headers={"Origin": "https://evil.example"})[0] == 403
+    assert not marker.exists() and saved == []
+
+
+def test_dns_rebinding_is_refused(base):
+    """A site whose name now points to 127.0.0.1: same origin for the browser, but its name in Host."""
+    url, _ = base
+    assert js(url + "/api/config", headers={"Host": "evil.example"})[0] == 403
+    assert js(url + "/api/tasks/ab12/cancel", "POST", {}, headers={"Host": "evil.example", "Origin": "http://evil.example"})[0] == 403
+
+
+def test_the_page_itself_and_other_clients_are_accepted(base):
+    url, _ = base
+    port = url.rsplit(":", 1)[1]
+    for headers in ({"Origin": url}, {"Origin": f"http://localhost:{port}", "Host": f"localhost:{port}"}, {}):
+        assert js(url + "/api/tasks/ab12/cancel", "POST", {}, headers=headers) == (200, {"ok": False}), headers

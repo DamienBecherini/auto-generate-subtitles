@@ -1,4 +1,3 @@
-import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -6,9 +5,10 @@ from types import SimpleNamespace
 import pytest
 
 from subtitles import config
-from subtitles.web import tasks, timing
+from subtitles.web import batch_manager, timing
 from subtitles.web.batches import Batch
-from subtitles.web.tasks import Manager, Task
+from subtitles.web.manager import Manager
+from subtitles.web.tasks import Task, TaskQueue
 
 
 @pytest.fixture(autouse=True)
@@ -136,19 +136,17 @@ def test_task_in_translation_counted_in_lines(monkeypatch):
 
 
 def manager(tmp_path, monkeypatch):
-    monkeypatch.setattr(tasks, "LAST_BATCH_FILE", tmp_path / "last_batch.json")
-    g = Manager.__new__(Manager)
-    g.tasks, g.order, g.batches, g.history = {}, [], {}, []
-    g.lock, g.wake = threading.Lock(), threading.Event()
+    monkeypatch.setattr(batch_manager, "LAST_BATCH_FILE", tmp_path / "last_batch.json")
+    g = Manager(TaskQueue(history=[]), start=False)
     return g
 
 
 def test_end_of_pass_remembers_the_speed(tmp_path, monkeypatch):
     g = manager(tmp_path, monkeypatch)
-    batch = g.batches["L"] = batch_of(["running"])
+    batch = g.batches.all["L"] = batch_of(["running"])
     t = running_task(batch="L", transcription="s", pause=True)
     t.pass_started = time.time() - 60
-    g._end_of_pass(t)
+    g.queue._end_of_pass(t)
     assert timing.read("transcription|s") == pytest.approx(0.1, abs=0.01)
     assert len(batch.passes[1]) == 1
 
@@ -157,5 +155,5 @@ def test_pass_resumed_in_a_few_seconds_ignored(tmp_path, monkeypatch):
     g = manager(tmp_path, monkeypatch)
     t = running_task(transcription="s", pause=True)
     t.pass_started = time.time() - 1
-    g._end_of_pass(t)
+    g.queue._end_of_pass(t)
     assert timing.read("transcription|s") is None

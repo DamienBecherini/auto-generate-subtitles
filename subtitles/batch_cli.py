@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from . import folder, i18n, language, source
+from .states import FINISHED_BATCH_STATES, BatchState, TaskState, VideoState
 
 WAIT_S = 1.0
 
@@ -41,18 +42,18 @@ def run(path: str, cfg: dict, log, *, transcription: str | None = None, translat
         spoken_language: str | None = None, languages: list[str] | None = None, output_dir: str | None = None, redo: bool = False,
         stop: str | None = None, new: bool = False, recursive: bool = True, manager=None) -> int:
     """Creates or resumes the batch, follows it to the end while copying the log of the videos. 0 if all is done, 1 otherwise."""
-    from .web.tasks import Manager        # no import of the web package for a single video
+    from .web.manager import Manager      # no import of the web package for a single video
 
     g = manager or Manager()
     p = Path(path.strip().strip('"'))
     file = None if new and p.is_dir() else find_batch_file(p, cfg, output_dir)
     if file:
-        batch = g.load_batch(str(file))
+        batch = g.batches.load(str(file))
         changes = {"translator": translator, "transcription": transcription, "pause": False, "stop": stop}
         if languages is not None:
             changes["languages"] = languages
-        g.batch_resume(batch.id, changes)
-        done = sum(1 for v in batch.videos if v["state"] == "done")
+        g.batches.resume(batch.id, changes)
+        done = sum(1 for v in batch.videos if v["state"] == VideoState.DONE)
         log(i18n.t("log.cli_batch_resume", file=batch.file, done=done, n=len(batch.videos)))
     else:
         if not p.is_dir():
@@ -67,12 +68,12 @@ def run(path: str, cfg: dict, log, *, transcription: str | None = None, translat
             options["output_dir"] = output_dir
         if stop:
             options["stop"] = stop
-        batch = g.create_batch(str(p).replace("\\", "/"), [{"path": v["path"], "language": spoken_language or ""} for v in videos], options)
+        batch = g.batches.create(str(p).replace("\\", "/"), [{"path": v["path"], "language": spoken_language or ""} for v in videos], options)
         log(i18n.t("log.cli_batch_new", n=len(videos), file=batch.file))
     try:
         return follow(g, batch, log)
     except KeyboardInterrupt:
-        g.batch_suspend(batch.id)
+        g.batches.suspend(batch.id)
         log(i18n.t("log.cli_interrupted_batch", file=batch.file))
         return 130
 
@@ -81,13 +82,13 @@ def follow(g, batch, log, wait_s: float = WAIT_S) -> int:
     read: dict[str, int] = {}                   # task → log lines already displayed
     announced: set[str] = set()
     while True:
-        if batch.state == "awaiting_translation":   # should not happen without a pause; translate at once
-            g.batch_translate(batch.id, None, None)
-        finished = batch.state in ("done", "cancelled")    # read before the log: the last lines are displayed
+        if batch.state == BatchState.AWAITING_TRANSLATION:   # should not happen without a pause; translate at once
+            g.batches.translate(batch.id, None, None)
+        finished = batch.state in FINISHED_BATCH_STATES    # read before the log: the last lines are displayed
         several = batch.concurrency > 1
         for v in list(batch.videos):
-            t = g.tasks.get(v.get("task") or "")
-            if t is None or t.state == "queued":
+            t = g.queue.get(v.get("task") or "")
+            if t is None or t.state == TaskState.QUEUED:
                 continue
             if t.id not in announced:
                 announced.add(t.id)
@@ -100,9 +101,10 @@ def follow(g, batch, log, wait_s: float = WAIT_S) -> int:
         if finished:
             break
         time.sleep(wait_s)
-    c = {e: sum(1 for v in batch.videos if v["state"] == e) for e in ("done", "error", "cancelled")}
-    log(i18n.t("log.cli_batch_finished" if batch.state == "done" else "log.cli_batch_cancelled", done=c["done"], errors=c["error"], cancelled=c["cancelled"]))
+    c = {e: sum(1 for v in batch.videos if v["state"] == e) for e in (VideoState.DONE, VideoState.ERROR, VideoState.CANCELLED)}
+    log(i18n.t("log.cli_batch_finished" if batch.state == BatchState.DONE else "log.cli_batch_cancelled", done=c[VideoState.DONE], errors=c[VideoState.ERROR],
+               cancelled=c[VideoState.CANCELLED]))
     for v in batch.videos:
-        if v["state"] == "error":
+        if v["state"] == VideoState.ERROR:
             log(f"  {v['name']} : {v.get('error') or i18n.t('state.error')}")
-    return 0 if batch.state == "done" and not c["error"] else 1
+    return 0 if batch.state == BatchState.DONE and not c[VideoState.ERROR] else 1

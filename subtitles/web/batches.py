@@ -10,10 +10,10 @@ import uuid
 from pathlib import Path
 
 from .. import folder, i18n, steps
+from ..states import BatchState, VideoState
 from . import timing
 
-VIDEO_STATES = ("todo", "running", "prepared", "translated", "done", "error", "cancelled")
-WANTED = {1: "todo", 2: "prepared", 3: "translated"}   # state of the videos each phase takes care of
+WANTED = {1: VideoState.TODO, 2: VideoState.PREPARED, 3: VideoState.TRANSLATED}   # state of the videos each phase takes care of
 
 
 class Batch:
@@ -23,7 +23,7 @@ class Batch:
         self.videos = videos                   # [{path, name, language, state, task, count, detected_language, error}]
         self.options = options                 # transcription, translator, languages, destination, output_dir, pause, stop, review
         self.file = Path(file)
-        self.state = "running"                 # running, suspended, awaiting_translation, done, cancelled
+        self.state = BatchState.RUNNING
         self.phase = 1
         self.created = time.time()
         self.finished = None
@@ -39,7 +39,7 @@ class Batch:
                 "created": self.created, "finished": self.finished, "file": str(self.file).replace("\\", "/"), "videos": self.videos}
 
     def summary(self) -> dict:
-        counts = {e: sum(1 for v in self.videos if v["state"] == e) for e in VIDEO_STATES}
+        counts = {e: sum(1 for v in self.videos if v["state"] == e) for e in VideoState}
         measures = self.passes.get(self.phase, [])[-10:]
         current = self.current()
         # Without a pause, a video of phase 1 goes up to the translation: the phase alone does not say where it is.
@@ -47,7 +47,7 @@ class Batch:
         return {**self.to_dict(), "counts": counts, "step": step, "total": len(self.videos), "concurrency": self.concurrency,
                 "avg_duration_s": round(sum(s for _, s in measures) / len(measures)) if measures else None,
                 "current": current["path"] if current else None,
-                "remaining_s": self.remaining_s(timing.known_rate(self.phase, self.options) if self.state == "running" else None),
+                "remaining_s": self.remaining_s(timing.known_rate(self.phase, self.options) if self.state == BatchState.RUNNING else None),
                 "dubbing_s": self.dubbing_left_s()}
 
     def save(self):
@@ -63,12 +63,12 @@ class Batch:
     def next_video(self) -> dict | None:
         wanted = WANTED[self.phase]
         # In phase 2, a video set back to do ("Retry") starts again from the transcription, without a pause.
-        to_process = [v for v in self.videos if v["state"] == wanted] or [v for v in self.videos if v["state"] == "todo"]
+        to_process = [v for v in self.videos if v["state"] == wanted] or [v for v in self.videos if v["state"] == VideoState.TODO]
         # Resume: the transcriptions already done go first (a few seconds each), the counter is quickly right.
-        return next((v for v in to_process if v["state"] == "todo" and v.get("transcribed")), to_process[0] if to_process else None)
+        return next((v for v in to_process if v["state"] == VideoState.TODO and v.get("transcribed")), to_process[0] if to_process else None)
 
     def current(self) -> dict | None:
-        return next((v for v in self.videos if v["state"] == "running"), None)
+        return next((v for v in self.videos if v["state"] == VideoState.RUNNING), None)
 
     def weight(self, v: dict) -> float:
         """What makes the duration of a video vary in this phase (see timing.py); 0 if still unknown."""
@@ -82,12 +82,12 @@ class Batch:
     def remaining_s(self, known_rate: float | None = None, now: float | None = None) -> int | None:
         """Seconds before the end of the current phase, from the last 10 processed videos, otherwise `known_rate`.
         None if the batch is not working or if nothing allows an estimate."""
-        if self.state != "running":
+        if self.state != BatchState.RUNNING:
             return None
         wanted = WANTED[self.phase]
         to_transcribe = lambda v: self.phase != 1 or not v.get("transcribed")  # noqa: E731 - a resume costs nothing
         upcoming = [v for v in self.videos if v["state"] == wanted and to_transcribe(v)]
-        running = [v for v in self.videos if v["state"] == "running" and to_transcribe(v)]
+        running = [v for v in self.videos if v["state"] == VideoState.RUNNING and to_transcribe(v)]
         measures = self.passes.get(self.phase, [])[-10:]
         measured_weight = sum(p for p, _ in measures)
         rate = sum(s for _, s in measures) / measured_weight if measured_weight > 0 else known_rate
@@ -112,7 +112,7 @@ class Batch:
         """Graphics card time for the videos still to dub; 0 if this batch only wants subtitles."""
         if not steps.goes_to(self.options.get("stop"), "dubbing"):
             return 0
-        todo = [v for v in self.videos if not v.get("muxed") and v["state"] not in ("cancelled", "error")]
+        todo = [v for v in self.videos if not v.get("muxed") and v["state"] not in (VideoState.CANCELLED, VideoState.ERROR)]
         return round(sum(float(v.get("duration") or 0) for v in todo) * (timing.known_rate(3, self.options) or 0))
 
     def video_of(self, task_id: str) -> dict | None:
@@ -120,12 +120,12 @@ class Batch:
 
     def end_phase(self):
         """Nothing more to start in the current phase."""
-        if self.phase == 1 and any(v["state"] == "prepared" for v in self.videos):
-            self.state = "awaiting_translation"
-        elif self.phase < 3 and any(v["state"] == "translated" for v in self.videos):
-            self.phase, self.state = 3, "running"
+        if self.phase == 1 and any(v["state"] == VideoState.PREPARED for v in self.videos):
+            self.state = BatchState.AWAITING_TRANSLATION
+        elif self.phase < 3 and any(v["state"] == VideoState.TRANSLATED for v in self.videos):
+            self.phase, self.state = 3, BatchState.RUNNING
         else:
-            self.state, self.finished = "done", time.time()
+            self.state, self.finished = BatchState.DONE, time.time()
 
     @classmethod
     def from_file(cls, file: Path) -> "Batch":
@@ -133,9 +133,9 @@ class Batch:
         d = folder.read_batch(file)
         videos = []
         for v in d["videos"]:
-            state = v["state"] if v.get("state") in ("done", "translated") else "todo"     # translated: only the dubbing is left
-            videos.append({**v, "state": state, "task": None if state != "done" else v.get("task"), "error": ""})
+            state = VideoState(v["state"]) if v.get("state") in (VideoState.DONE, VideoState.TRANSLATED) else VideoState.TODO   # translated: only the dubbing is left
+            videos.append({**v, "state": state, "task": None if state != VideoState.DONE else v.get("task"), "error": ""})
         batch = cls(d["root"], videos, d.get("options", {}), Path(d["file"]), d.get("id"))
-        batch.state = "suspended"
+        batch.state = BatchState.SUSPENDED
         batch.created = d.get("created") or time.time()
         return batch

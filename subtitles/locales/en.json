@@ -48,6 +48,7 @@
  "err.batch_file_not_found": "batch file not found: {path}",
  "err.batch_file_unreadable": "unreadable batch file: {error}",
  "err.body_too_large": "request body too large",
+ "err.foreign_request": "request refused: it does not come from the interface page",
  "err.cancelled": "cancelled",
  "err.cannot_open": "cannot open on this system: {error}",
  "err.download_missing": "expected file missing after the download: {path}",

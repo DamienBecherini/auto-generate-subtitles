@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from .. import __version__, cleanup, config, folder, i18n, language, local_transcription, source, steps, transcription, translation
 from .idle import IdleWatch, is_activity
-from .tasks import Manager
+from .manager import Manager
 
 log = logging.getLogger("subtitles.web")
 STATIC = Path(__file__).resolve().parent / "static"
@@ -220,7 +220,7 @@ class Request:
         self.query = parse_qs(url.query)
         self.headers = handler.headers
         self._rfile = handler.rfile
-        self.length = int(handler.headers.get("Content-Length") or 0)
+        self.length = max(0, int(handler.headers.get("Content-Length") or 0))
         self.consumed = 0
         self._body = None
 
@@ -292,8 +292,8 @@ def get_health(req):
 def status(req):
     """Active engines, state of the local transcription server and of the local AI, current task."""
     cfg = config.load()
-    current = manager.current() or next(iter(reversed(manager.paused())), None)
-    batch = manager.active_batch()
+    current = manager.queue.current() or next(iter(reversed(manager.queue.paused())), None)
+    batch = manager.batches.active()
     return 200, {"batch": batch.summary() if batch else None,
                  "active_transcription": cfg.get("active_transcription"), "active_translator": cfg.get("active_translator"),
                  "output_dir": cfg.get("output_dir"), "language": cfg.get("language", ""),
@@ -318,7 +318,7 @@ def put_config(req):
 # --- tasks ---
 @route("GET", "/api/tasks")
 def list_tasks(req):
-    return 200, manager.all_tasks()
+    return 200, manager.queue.all_tasks()
 
 
 @route("POST", "/api/tasks")
@@ -340,13 +340,13 @@ def create_task(req):
         options["pause"] = bool(d["pause"])
     if d.get("until") == "mux":
         options.update(until="mux", continued=True, replace=bool(d.get("replace")))
-    return 201, manager.add(options).summary()
+    return 201, manager.queue.add(options).summary()
 
 
 @route("GET", "/api/tasks/{id}")
 def get_task(req, id):
     """?since=N: log lines from N."""
-    d = manager.detail(id, int(req.arg("since", "0")))
+    d = manager.queue.detail(id, int(req.arg("since", "0")))
     if d is None:
         raise RequestError(404, i18n.t("err.unknown_task"))
     return 200, d
@@ -355,7 +355,7 @@ def get_task(req, id):
 @route("GET", "/api/tasks/{id}/estimate")
 def estimate_task(req, id):
     """?languages=fr,en: estimated cost of a paused task for these languages."""
-    e = manager.estimate(id, req.arg("languages"))
+    e = manager.queue.estimate(id, req.arg("languages"))
     if e is None:
         raise RequestError(404, i18n.t("err.task_not_prepared"))
     return 200, e
@@ -365,7 +365,7 @@ def estimate_task(req, id):
 def translate_task(req, id):
     """{translator?, languages?}: second phase of a paused task ("none" = finish without translating)."""
     d = req.json()
-    t = manager.resume(id, d.get("translator"), d.get("languages"))
+    t = manager.queue.resume(id, d.get("translator"), d.get("languages"))
     if t is None:
         raise RequestError(409, i18n.t("err.task_not_paused"))
     return 200, t.summary()
@@ -374,7 +374,7 @@ def translate_task(req, id):
 @route("POST", "/api/tasks/{id}/retry")
 def retry_task(req, id):
     """Task in error."""
-    t = manager.retry(id)
+    t = manager.queue.retry(id)
     if t is None:
         raise RequestError(404, i18n.t("err.task_not_in_error"))
     return 200, {"id": t.id}
@@ -382,7 +382,7 @@ def retry_task(req, id):
 
 @route("POST", "/api/tasks/{id}/cancel")
 def cancel_task(req, id):
-    return 200, {"ok": manager.cancel(id)}
+    return 200, {"ok": manager.queue.cancel(id)}
 
 
 # --- folder inventory (one at a time) ---
@@ -419,7 +419,7 @@ def cancel_scan(req, id):
 # --- batches ---
 @route("GET", "/api/batches")
 def list_batches(req):
-    return 200, [b.summary() for b in reversed(list(manager.batches.values()))]
+    return 200, manager.batches.summaries()
 
 
 @route("POST", "/api/batches")
@@ -437,18 +437,18 @@ def create_batch(req):
     _check_stop(options.get("stop"))
     if options.get("stop") == "validation" or options.get("review"):
         options["pause"] = True    # the proposed names are checked before translation, whatever the pause setting
-    return 201, manager.create_batch(str(d.get("root") or Path(videos[0]["path"]).parent), videos, options).summary()
+    return 201, manager.batches.create(str(d.get("root") or Path(videos[0]["path"]).parent), videos, options).summary()
 
 
 @route("GET", "/api/batches/last")
 def last_batch(req):
     """Batch left unfinished at the previous session."""
-    return 200, {"last": manager.last_batch()}
+    return 200, {"last": manager.batches.last()}
 
 
 @route("POST", "/api/batches/last/forget")
 def forget_last_batch(req):
-    manager.forget_last_batch()
+    manager.batches.forget_last()
     return 200, {"ok": True}
 
 
@@ -456,14 +456,14 @@ def forget_last_batch(req):
 def load_batch(req):
     """{file}: reads a subtitles.batch.json back (resume after an interruption) → suspended batch, to resume."""
     try:
-        return 200, manager.load_batch((req.json().get("file") or "").strip().strip('"')).summary()
+        return 200, manager.batches.load((req.json().get("file") or "").strip().strip('"')).summary()
     except source.SourceError as e:
         raise RequestError(400, str(e)) from e
 
 
 @route("GET", "/api/batches/{id}")
 def get_batch(req, id):
-    batch = manager.batch(id)
+    batch = manager.batches.get(id)
     if batch is None:
         raise RequestError(404, i18n.t("err.unknown_batch"))
     return 200, batch.summary()
@@ -472,15 +472,15 @@ def get_batch(req, id):
 @route("GET", "/api/batches/{id}/estimate")
 def estimate_batch(req, id):
     """?languages=fr,en"""
-    if manager.batch(id) is None:
+    if manager.batches.get(id) is None:
         raise RequestError(404, i18n.t("err.unknown_batch"))
-    return 200, manager.estimate_batch(id, req.arg("languages")) or {}
+    return 200, manager.batches.estimate(id, req.arg("languages")) or {}
 
 
 @route("GET", "/api/batches/{id}/review")
 def review_batch(req, id):
     """?path=: names to check."""
-    r = manager.batch_proposals(id, req.arg("path"))
+    r = manager.batches.proposals(id, req.arg("path"))
     if r is None:
         raise RequestError(404, i18n.t("err.unknown_batch"))
     return 200, r
@@ -489,10 +489,10 @@ def review_batch(req, id):
 @route("POST", "/api/batches/{id}/validate")
 def validate_batch(req, id):
     """{decisions: [{transcribed, spelling, french, accept}]}"""
-    r = manager.validate_names(id, req.json().get("decisions") or [])
+    r = manager.batches.validate_names(id, req.json().get("decisions") or [])
     if r is None:
         raise RequestError(404, i18n.t("err.unknown_batch"))
-    return 200, {**r, "batch": manager.batch(id).summary()}
+    return 200, {**r, "batch": manager.batches.get(id).summary()}
 
 
 def _check_stop(stop):
@@ -504,12 +504,12 @@ def _batch_after(id: str, ok: bool, action: str):
     """Answer of an action on a batch: its new state, or 409 if the batch refused it."""
     if not ok:
         raise RequestError(409, i18n.t("err.batch_action", action=action))
-    return 200, manager.batch(id).summary()
+    return 200, manager.batches.get(id).summary()
 
 
 @route("POST", "/api/batches/{id}/{action:suspend|cancel}")
 def suspend_or_cancel_batch(req, id, action):
-    return _batch_after(id, getattr(manager, "batch_" + action)(id), action)
+    return _batch_after(id, getattr(manager.batches, action)(id), action)
 
 
 @route("POST", "/api/batches/{id}/translate")
@@ -517,32 +517,32 @@ def translate_batch(req, id):
     """{translator?, languages?, stop?}"""
     d = req.json()
     _check_stop(d.get("stop"))
-    return _batch_after(id, manager.batch_translate(id, d.get("translator"), d.get("languages"), d.get("stop")), "translate")
+    return _batch_after(id, manager.batches.translate(id, d.get("translator"), d.get("languages"), d.get("stop")), "translate")
 
 
 @route("POST", "/api/batches/{id}/resume")
 def resume_batch(req, id):
     """{translator?, transcription?, languages?, pause?, stop?}"""
-    return _batch_after(id, manager.batch_resume(id, req.json()), "resume")
+    return _batch_after(id, manager.batches.resume(id, req.json()), "resume")
 
 
 @route("POST", "/api/batches/{id}/goal")
 def batch_goal(req, id):
     """{stop, replace?}: translation (subtitles only) or mux (subtitles + dubbing)."""
     d = req.json()
-    return _batch_after(id, manager.batch_goal(id, d.get("stop") or "", d.get("replace")), "goal")
+    return _batch_after(id, manager.batches.goal(id, d.get("stop") or "", d.get("replace")), "goal")
 
 
 @route("POST", "/api/batches/{id}/continue")
 def continue_batch(req, id):
     """{path}: one video up to the end of what the batch must produce, before the others."""
-    return _batch_after(id, manager.batch_continue(id, req.json().get("path") or ""), "continue")
+    return _batch_after(id, manager.batches.continue_video(id, req.json().get("path") or ""), "continue")
 
 
 @route("POST", "/api/batches/{id}/retry")
 def retry_batch(req, id):
     """{path?}"""
-    return _batch_after(id, manager.batch_retry(id, req.json().get("path")), "retry")
+    return _batch_after(id, manager.batches.retry(id, req.json().get("path")), "retry")
 
 
 # --- working folders, files ---
@@ -561,7 +561,7 @@ def cleanup_run(req):
     cfg = config.load()
     opts = {**cleanup.options(cfg), **{k: v for k, v in (d.get("options") or {}).items() if k in cleanup.DEFAULTS}}
     root = Path(d.get("output_dir") or cfg["output_dir"]) / ".work"
-    if manager.current():
+    if manager.queue.current():
         raise RequestError(409, i18n.t("err.task_running_cleanup"))
     return 200, {"root": str(root), "deleted": cleanup.clean_all(root, opts), "categories": cleanup.summary(root)}
 
@@ -661,10 +661,25 @@ class Handler(BaseHTTPRequestHandler):
 
     do_POST = do_PUT = do_GET
 
+    def _foreign(self) -> bool:
+        """Request that does not come from the page of the interface: refused before any route.
+
+        Host other than 127.0.0.1 or localhost on our port: DNS rebinding (a site whose name now points to this PC).
+        POST or PUT with the Origin of another site: a page open in the browser that writes to the API (CSRF); a
+        browser always sends Origin with these methods, other clients (curl, command line) do not send it."""
+        port = self.server.server_address[1]
+        ours = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        if (self.headers.get("Host") or "").lower() not in ours:
+            return True
+        origin = (self.headers.get("Origin") or "").lower()
+        return self.command != "GET" and bool(origin) and origin.removeprefix("http://") not in ours
+
     def _dispatch(self):
         url = urlparse(self.path)
         req = None
         try:
+            if self._foreign():
+                raise RequestError(403, i18n.t("err.foreign_request"))
             req = Request(self, url)
             found = resolve(self.command, url.path)
             if found is None:

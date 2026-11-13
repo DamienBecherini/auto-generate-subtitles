@@ -1,9 +1,11 @@
 """Resuming a batch: the videos already transcribed go first, and do not count in the time left."""
-import threading
 
 from subtitles import config, pipeline
-from subtitles.web import tasks
+from subtitles.web import batch_manager
+from subtitles.web.batch_manager import BatchManager
 from subtitles.web.batches import Batch
+from subtitles.web.manager import Manager
+from subtitles.web.tasks import TaskQueue
 
 
 def video(name, state="todo", **others):
@@ -52,7 +54,7 @@ def test_detection_from_the_working_folder(tmp_path, monkeypatch):
     work.mkdir(parents=True)
     (work / "transcription.json").write_text("{}", encoding="utf-8")
     batch = batch_of(tmp_path, videos)
-    tasks.Manager._mark_transcribed(batch)
+    BatchManager.mark_transcribed(batch)
     assert [v["transcribed"] for v in batch.videos] == [False, True]
 
 
@@ -63,22 +65,20 @@ def test_redo_transcribes_everything_again(tmp_path, monkeypatch):
     work.mkdir(parents=True)
     (work / "transcription.json").write_text("{}", encoding="utf-8")
     batch = batch_of(tmp_path, videos, {"redo": True})
-    tasks.Manager._mark_transcribed(batch)
+    BatchManager.mark_transcribed(batch)
     assert batch.videos[0]["transcribed"] is False
 
 
 def test_resume_detects_the_transcriptions(tmp_path, monkeypatch):
-    monkeypatch.setattr(tasks, "LAST_BATCH_FILE", tmp_path / "last_batch.json")
+    monkeypatch.setattr(batch_manager, "LAST_BATCH_FILE", tmp_path / "last_batch.json")
     monkeypatch.setattr(config, "load", lambda: {"output_dir": str(tmp_path)})
-    g = tasks.Manager.__new__(tasks.Manager)
-    g.tasks, g.order, g.batches, g.history = {}, [], {}, []
-    g.lock, g.wake = threading.Lock(), threading.Event()
-    monkeypatch.setattr(g, "_measure_durations", lambda batch: None)
+    g = Manager(TaskQueue(history=[]), start=False)
+    monkeypatch.setattr(g.batches, "_measure_durations", lambda batch: None)
     videos = [video("a"), video("b")]
     work = pipeline.work_dir(tmp_path, videos[1]["path"])
     work.mkdir(parents=True)
     (work / "transcription.json").write_text("{}", encoding="utf-8")
     file = tmp_path / "subtitles.batch.json"
     batch_of(tmp_path, videos).save()
-    resumed = g.load_batch(str(file))
+    resumed = g.batches.load(str(file))
     assert resumed.next_video() is resumed.videos[1]
