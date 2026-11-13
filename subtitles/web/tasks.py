@@ -293,8 +293,12 @@ class TaskQueue:
             t.state = TaskState.CANCELLED
             t.write(i18n.t("log.cancelled"))
         except KNOWN_ERRORS as e:
-            t.state, t.error = TaskState.ERROR, str(e)
-            t.write(i18n.t("log.error", error=e))
+            if t.cancel_requested:             # the translator and the review stop with their own error when asked to
+                t.state = TaskState.CANCELLED
+                t.write(i18n.t("log.cancelled"))
+            else:
+                t.state, t.error = TaskState.ERROR, str(e)
+                t.write(i18n.t("log.error", error=e))
         except Exception as e:  # noqa: BLE001 - a task must not kill the loop
             t.state, t.error = TaskState.ERROR, f"{type(e).__name__} : {e}"
             t.write(i18n.t("log.unexpected_error") + "\n" + traceback.format_exc())

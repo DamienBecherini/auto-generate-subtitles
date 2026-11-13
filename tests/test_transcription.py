@@ -107,3 +107,57 @@ def test_server_without_health_route_is_not_an_error(tmp_path, options):
 def test_unreachable_server_stays_an_error():
     with pytest.raises(transcription.TranscriptionError, match="injoignable"):
         transcription.health("http://127.0.0.1:9", timeout_s=2)
+
+
+def test_cancel_closes_the_connection_without_waiting_for_the_answer(audio):
+    """A slow server (5 s): stopping after 0.3 s returns at once, and the server sees its client gone."""
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    seen = {}
+
+    class Slow(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            for _ in range(50):                      # works 5 s, watching the connection like transcription-handy-like
+                time.sleep(0.1)
+                try:
+                    if self.connection.recv(1, __import__("socket").MSG_PEEK) == b"":
+                        seen["gone"] = True
+                        return
+                except (BlockingIOError, OSError):
+                    pass
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *_):
+            pass
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    start = time.monotonic()
+    try:
+        with pytest.raises(transcription.TranscriptionCancelled):
+            transcription.transcribe(f"http://127.0.0.1:{httpd.server_port}", audio, cancelled=lambda: time.monotonic() - start > 0.3)
+        assert time.monotonic() - start < 2
+        for _ in range(30):
+            if seen.get("gone"):
+                break
+            time.sleep(0.1)
+        assert seen.get("gone"), "the server should see the client leave"
+    finally:
+        httpd.shutdown()
+
+
+def test_server_error_status_is_reported(tmp_path, audio):
+    url, _, httpd = fake_server(tmp_path, {"detail": "boom"}, code=500)
+    try:
+        with pytest.raises(transcription.TranscriptionError, match="500"):
+            transcription.transcribe(url, audio)
+    finally:
+        httpd.shutdown()
+
+
+def test_unreachable_transcription_server(audio):
+    """Refused at once (Linux) or after the retries of the system (Windows: then "no answer"): an error either way."""
+    with pytest.raises(transcription.TranscriptionError, match="injoignable|Pas de réponse"):
+        transcription.transcribe("http://127.0.0.1:9", audio, timeout_s=2)

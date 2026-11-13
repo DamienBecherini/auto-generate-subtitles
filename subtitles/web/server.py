@@ -92,7 +92,8 @@ def local_transcription_state(cfg: dict) -> dict:
     return r
 
 
-_TITLES = {"file": "dialog.pick_video", "batch": "dialog.pick_batch", "source_folder": "dialog.source_folder"}
+_TITLES = {"file": "dialog.pick_video", "batch": "dialog.pick_batch", "source_folder": "dialog.source_folder",
+           "download_folder": "dialog.download_folder"}       # any other kind: the output folder
 _VIDEOS = "*.mp4 *.mkv *.webm *.mov *.avi *.m4a *.mp3 *.opus *.ogg *.wav *.flac"
 _PATTERNS = {"file": (_VIDEOS, "dialog.videos_audio"), "batch": ("*.batch.json", "dialog.batch_file")}
 _MAC_SCRIPT = ("on run argv\n"
@@ -148,7 +149,7 @@ def dialog(kind: str, start: str = "") -> str:
                 f"if ('{start}') {{ $d.InitialDirectory = '{start}' }}; "
                 "if ($d.ShowDialog($f) -eq 'OK') { $d.FileName }")
     else:
-        title = i18n.t("dialog.source_folder" if kind == "source_folder" else "dialog.output_folder").replace("'", "''")
+        title = i18n.t(_TITLES.get(kind, "dialog.output_folder")).replace("'", "''")
         body = (f"$d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = '{title}'; "
                 f"if ('{start}') {{ $d.SelectedPath = '{start}' }}; "
                 "if ($d.ShowDialog($f) -eq 'OK') { $d.SelectedPath }")
@@ -520,7 +521,7 @@ def _batch_after(id: str, ok: bool, action: str):
     return 200, manager.batches.get(id).summary()
 
 
-@route("POST", "/api/batches/{id}/{action:suspend|cancel}")
+@route("POST", "/api/batches/{id}/{action:suspend|cancel|stop}")
 def suspend_or_cancel_batch(req, id, action):
     return _batch_after(id, getattr(manager.batches, action)(id), action)
 
@@ -613,7 +614,7 @@ def stop_local_transcription(req):
 
 @route("POST", "/api/dialog")
 def system_dialog(req):
-    """{type: "file"|"folder"|"batch"|"source_folder", start?} → {path}"""
+    """{type: "file"|"folder"|"batch"|"source_folder"|"download_folder", start?} → {path}"""
     d = req.json()
     return 200, {"path": dialog(d.get("type", "file"), d.get("start", ""))}
 
@@ -642,7 +643,7 @@ def _ytdlp(cfg: dict) -> list[str]:
 
 @route("POST", "/api/youtube")
 def youtube(req):
-    """{url, output_dir?}: title, duration and target file, without downloading (YouTube; other sites of yt-dlp may work).
+    """{url, output_dir?}: title, duration and target file, without downloading (YouTube, Dailymotion, PeerTube, Arte… sites of yt-dlp).
     A playlist: "playlist" {title, count, duration, folder}; then "video" only if the address also designates one
     video of the list (alone: "Start"; the whole list: POST /api/playlist)."""
     d = req.json()

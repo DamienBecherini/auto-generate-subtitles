@@ -2,7 +2,7 @@
 
 # auto-generate-subtitles
 
-**Des sous-titres pour une vidéo ou une playlist YouTube, un fichier ou un dossier entier, calés sur la parole, dans les langues voulues.**
+**Des sous-titres pour une vidéo ou une playlist en ligne (YouTube, Dailymotion, PeerTube, Arte…), un fichier ou un dossier entier, calés sur la parole, dans les langues voulues.**
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org)
 [![No dependencies](https://img.shields.io/badge/dependencies-standard%20library%20only-2EA043)](pyproject.toml)
@@ -18,7 +18,7 @@
 
 ---
 
-Sous-titres d'une vidéo YouTube (d'autres [sites pris en charge par yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) peuvent fonctionner aussi) ou d'un fichier vidéo dans sa langue et dans les langues voulues. La transcription passe par un serveur compatible OpenAI que vous fournissez ; la traduction par une IA locale, l'API Claude, toute API compatible OpenAI, ou rien. Les fichiers `.srt` et `.vtt` sont calés sur la parole. Interface web locale ou ligne de commande.
+Sous-titres d'une vidéo en ligne (essayé avec YouTube, Dailymotion, PeerTube et Arte ; d'autres [sites pris en charge par yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) peuvent fonctionner, sauf ceux qui exigent un compte) ou d'un fichier vidéo dans sa langue et dans les langues voulues. La transcription passe par un serveur compatible OpenAI que vous fournissez ; la traduction par une IA locale, l'API Claude, toute API compatible OpenAI, ou rien. Les fichiers `.srt` et `.vtt` sont calés sur la parole. Interface web locale ou ligne de commande.
 
 ![Un dossier de vidéos sous-titré en lot : progression, étapes et journal en direct](docs/images/fr/batch-running-dark.png)
 
@@ -49,7 +49,7 @@ Il vérifie Python, `ffmpeg` et `yt-dlp`, cherche un serveur de transcription d�
 
 **1. Lancez un serveur de transcription.** Cet outil envoie l'audio à un serveur que vous faites tourner. Utilisez **[transcription-handy-like](https://github.com/DamienBecherini/transcription-handy-like/blob/main/README.fr.md)** : son [démarrage rapide](https://github.com/DamienBecherini/transcription-handy-like/blob/main/README.fr.md#démarrage-rapide-sur-votre-ordinateur) tient en trois commandes avec Docker, et il écoute à l'adresse attendue ici par défaut.
 
-**2. Installez cet outil.** Il faut Python 3.11 ou plus, ainsi que `ffmpeg` et `ffprobe` dans le `PATH`. `yt-dlp` ne sert que pour les adresses YouTube.
+**2. Installez cet outil.** Il faut Python 3.11 ou plus, ainsi que `ffmpeg` et `ffprobe` dans le `PATH`. `yt-dlp` ne sert que pour les adresses de vidéos.
 
 ```
 git clone https://github.com/DamienBecherini/auto-generate-subtitles.git
@@ -61,7 +61,7 @@ python -m venv .venv
 
 **3. Vérifiez la connexion.** Sur la page, ouvrez **Réglages**, puis cliquez sur **Tester** à côté du serveur de transcription. Si votre serveur est sur une autre machine ou demande une clé API, changez son adresse et sa clé à cet endroit.
 
-**4. Créez des sous-titres.** Collez une adresse YouTube ou le chemin d'un fichier, puis cliquez sur **Démarrer**. Le fichier `.srt` apparaît à côté de la vidéo.
+**4. Créez des sous-titres.** Collez l'adresse d'une vidéo (YouTube, Dailymotion, PeerTube, Arte…) ou le chemin d'un fichier, puis cliquez sur **Démarrer**. Le fichier `.srt` apparaît à côté de la vidéo.
 
 Pour traduire, ajoutez un traducteur dans **Réglages**. Pour l'API Claude, lancez d'abord `.venv/bin/pip install ".[claude]"`.
 
@@ -73,10 +73,10 @@ Pour traduire, ajoutez un traducteur dans **Réglages**. Pour l'API Claude, lanc
 
 La page :
 
-- **Adresse d'une vidéo ou chemin** + **Démarrer** (rien ne part avant ce clic). Une adresse YouTube
-  affiche d'abord le titre, la durée et le fichier de destination ; la vidéo est téléchargée par yt-dlp
+- **Adresse d'une vidéo ou chemin** + **Démarrer** (rien ne part avant ce clic). Une adresse (YouTube,
+  Dailymotion, PeerTube, Arte…) affiche d'abord le titre, la durée et le fichier de destination ; la vidéo est téléchargée par yt-dlp
   **dans le dossier de téléchargement** (le dossier de sortie par défaut), où elle reste.
-- **Playlist** (playlist ou chaîne YouTube) : l'aperçu annonce le nombre de vidéos, la durée totale et
+- **Playlist** (playlist ou chaîne YouTube, chaîne PeerTube…) : l'aperçu annonce le nombre de vidéos, la durée totale et
   le dossier, avec **Télécharger la playlist**. Les vidéos sont téléchargées une à une dans un dossier au nom de la
   playlist, numérotées dans l'ordre de la liste (`001 - titre.mp4`), avec une barre de progression et **Annuler** ;
   une vidéo impossible à télécharger (privée, supprimée) est sautée et signalée. Le dossier s'ouvre ensuite comme un
@@ -91,7 +91,10 @@ La page :
   demandée, sélection par défaut), langue parlée pour toutes puis ajustable vidéo par vidéo, et **Lancer le lot**
   avec les options de la page. Le lot enchaîne une tâche par vidéo : toutes les transcriptions d'abord, puis
   (pause cochée) une **estimation cumulée** et **Traduire tout** avec le traducteur choisi à ce moment. **Pause**
-  arrête le lot à la fin de la vidéo en cours, **Reprendre** le relance.
+  arrête le lot à la fin de la vidéo en cours ; **Arrêter** le met en pause tout de suite : la vidéo en cours
+  s'interrompt en quelques secondes (le serveur de transcription est prévenu) et repartira de ce qu'elle a fini ;
+  **Reprendre** relance le lot. Une fois un travail lancé, les réglages de la page se replient en une ligne
+  (**Modifier** les déplie) et se déplient d'eux-mêmes dès qu'on donne une nouvelle vidéo, un dossier ou une adresse.
 - **Tout transcrire d'abord** (la case de pause, quand un dossier est ouvert) : le lot transcrit toutes les vidéos, puis
   affiche le coût cumulé de toutes les traductions pour chaque modèle, sans compter celles déjà faites et conservées.
 - **Grand dossier** : la liste s'affiche dès le parcours fini, sous-dossiers repliés au-delà de trois (compteur de
@@ -122,7 +125,8 @@ La page :
   pour Claude) ou **Terminer sans traduire**. Le journal donne ensuite les jetons réellement consommés et leur coût.
 - Suivi de la tâche : étapes, journal en direct, **Annuler** (prend effet à la fin de l'étape en cours), puis
   boutons **Ouvrir le dossier** et **Ouvrir la vidéo**. Historique des 50 dernières tâches (`history.json`, à côté de `config.json`) ; le journal complet de chaque tâche est écrit à sa fin dans `.work/<nom>/log-<date>-<id>.txt` et s'ouvre en accordéon dans sa ligne d'historique (bouton Journal), sans quitter le suivi de la tâche en cours.
-- **Réglages** : dossier de sortie, langue parlée par défaut, **téléchargements** (dossier des vidéos téléchargées,
+- **Réglages** : dossier de sortie, langue parlée par défaut, **téléchargements** (dossier des vidéos téléchargées, en
+  chemin Windows comme `D:/Vidéos` même si yt-dlp tourne dans WSL : l'outil le convertit,
   qualité maximale, 1080p par défaut avec un son de 128 kb/s au plus, autres options de yt-dlp comme
   `--cookies-from-browser firefox`, commande yt-dlp), taille des lots de traduction, **nettoyage
   du dossier de travail** (voir plus bas, avec le bouton **Nettoyer maintenant** et la taille occupée par catégorie),
@@ -259,7 +263,7 @@ pas d'authentification : elle n'écoute que sur la machine elle-même, et refuse
 | `POST /api/batches` `{root, videos: [{path, language}], languages?, translator?, pause?, stop?}` | lancer un lot |
 | `GET /api/batches/<id>` | avancement : `state`, `phase`, `step` (étape de la vidéo en cours), comptes, temps restant |
 | `POST /api/batches/load` `{file}` puis `POST /api/batches/<id>/resume` | reprendre d'après un `subtitles.batch.json` |
-| `POST /api/batches/<id>/suspend`, `cancel`, `translate` | piloter un lot |
+| `POST /api/batches/<id>/suspend`, `stop`, `cancel`, `translate` | piloter un lot (`suspend` : après la vidéo en cours ; `stop` : tout de suite, la vidéo revient dans la liste) |
 | `GET /api/health` | occupé ou non, activité, temps restant (voir plus haut) |
 
 ```

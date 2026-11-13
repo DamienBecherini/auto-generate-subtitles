@@ -93,6 +93,12 @@
       <div id="folder-tree" class="tree"></div>
     </div>
 
+    <div id="settings-summary" class="settings-summary open" role="button" tabindex="0" aria-controls="settings-zone" aria-expanded="true">
+      <span class="help" id="settings-summary-title"></span>
+      <span id="settings-summary-text"></span>
+      <button type="button" class="secondary small" id="btn-settings-edit" tabindex="-1"></button>
+    </div>
+    <div id="settings-zone">
     <div class="goal">
       <span class="help" data-i18n="ui.goal.title"></span>
       <div class="checks">
@@ -132,6 +138,7 @@
       <label class="check wide"><input type="checkbox" id="opt-redo"> <span data-i18n="ui.redo_option"></span></label>
     </div>
     <div id="translator-engine" class="engine-inline" hidden></div>
+    </div>
     <div class="actions" id="folder-actions" hidden>
       <label class="check" id="review-zone"><input type="checkbox" id="opt-review"> <span data-i18n="ui.review_option"></span></label>
       <button type="button" class="primary" id="btn-start-batch" data-i18n="ui.start_batch"></button>
@@ -145,6 +152,7 @@
       <h2><span data-i18n="ui.batch.title"></span> <span class="help" id="batch-root"></span></h2>
       <span class="state" id="batch-state" role="status"></span>
       <button type="button" class="secondary" id="btn-batch-suspend" data-i18n="ui.batch.pause" data-i18n-title="ui.batch.pause_title"></button>
+      <button type="button" class="secondary" id="btn-batch-stop" data-i18n="ui.batch.stop" data-i18n-title="ui.batch.stop_title"></button>
       <button type="button" class="secondary" id="btn-batch-resume" data-i18n="ui.batch.resume"></button>
       <button type="button" class="secondary" id="btn-batch-retry" data-i18n-title="ui.batch.retry_title" hidden></button>
       <button type="button" class="secondary danger" id="btn-batch-cancel" data-i18n="ui.cancel"></button>
@@ -250,12 +258,20 @@
 
 <dialog id="dlg-settings">
   <form method="dialog" id="form-settings">
-    <div class="head"><h2 data-i18n="ui.settings"></h2><button type="button" class="close" id="btn-close-settings" data-i18n-aria-label="ui.close">×</button></div>
+    <div class="head dialog-bar">
+      <h2 data-i18n="ui.settings" tabindex="-1" autofocus></h2>
+      <span id="settings-message" class="help" role="status"></span>
+      <button type="button" class="secondary" id="btn-cancel-settings" data-i18n="ui.cancel"></button>
+      <button type="button" class="primary" id="btn-save-settings" data-i18n="ui.save"></button>
+      <button type="button" class="close" id="btn-close-settings" data-i18n-aria-label="ui.close">×</button>
+    </div>
     <p class="help" data-i18n-html="ui.cfg.keys_help"></p>
 
     <h3 data-i18n="ui.cfg.general"></h3>
     <div class="grid">
-      <label><span data-i18n="ui.output_folder"></span> <input type="text" id="cfg-output-dir"></label>
+      <label><span data-i18n="ui.output_folder"></span>
+        <span class="row"><input type="text" id="cfg-output-dir" spellcheck="false"> <button type="button" class="secondary small" id="btn-cfg-output-dir" data-i18n="ui.browse"></button></span>
+        <span class="help" data-i18n="ui.cfg.output_dir_help"></span></label>
       <label><span data-i18n="ui.cfg.default_language"></span> <input type="text" id="cfg-language" data-i18n-placeholder="ui.cfg.default_language_placeholder"></label>
       <label><span data-i18n="ui.cfg.chunk"></span> <input type="number" id="cfg-chunk" min="1" max="100"></label>
       <label><span data-i18n="ui.cfg.idle"></span> <input type="number" id="cfg-idle" min="0" max="10080"></label>
@@ -263,7 +279,9 @@
 
     <h3><span data-i18n="ui.cfg.downloads"></span> <span class="help" data-i18n="ui.cfg.downloads_help"></span></h3>
     <div class="grid">
-      <label><span data-i18n="ui.cfg.download_dir"></span> <input type="text" id="cfg-download-dir" data-i18n-placeholder="ui.cfg.download_dir_placeholder"></label>
+      <label><span data-i18n="ui.cfg.download_dir"></span>
+        <span class="row"><input type="text" id="cfg-download-dir" spellcheck="false" data-i18n-placeholder="ui.cfg.download_dir_placeholder"> <button type="button" class="secondary small" id="btn-cfg-download-dir" data-i18n="ui.browse"></button></span>
+        <span class="help" data-i18n="ui.cfg.download_dir_help"></span></label>
       <label><span data-i18n="ui.cfg.max_height"></span>
         <select id="cfg-max-height">
           <option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option>
@@ -302,11 +320,6 @@
       <label><span data-i18n="ui.cfg.cps"></span> <input type="number" id="cfg-cps" min="8" max="30"></label>
     </div>
 
-    <div class="footer">
-      <span id="settings-message" class="help"></span>
-      <button type="button" class="secondary" id="btn-cancel-settings" data-i18n="ui.cancel"></button>
-      <button type="button" class="primary" id="btn-save-settings" data-i18n="ui.save"></button>
-    </div>
   </form>
 </dialog>
 

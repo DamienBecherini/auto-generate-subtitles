@@ -27,7 +27,7 @@ machine already has.
 - `ffmpeg` and `ffprobe` must be in the `PATH` (`ffmpeg -version`). If they are missing, propose the usual way and
   ask first: `winget install Gyan.FFmpeg` (Windows), `brew install ffmpeg` (macOS), `sudo apt install ffmpeg`
   (Debian, Ubuntu).
-- `yt-dlp` is needed only for video and playlist addresses (YouTube; other sites it supports may work). Ask whether the
+- `yt-dlp` is needed only for video and playlist addresses (tested: YouTube, Dailymotion, PeerTube, Arte; other sites it supports may work, not those that require an account). Ask whether the
   user wants them; if so, propose `winget install yt-dlp.yt-dlp`, `brew install yt-dlp` or `pipx install yt-dlp`.
   For YouTube, recent versions also need a JavaScript runtime (Deno, or Node 22 or later given with
   `--js-runtimes node:<path>` in the yt-dlp configuration file): check with `yt-dlp --simulate <a short public video>`.

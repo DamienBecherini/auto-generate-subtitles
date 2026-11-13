@@ -62,11 +62,12 @@ id = "none"
 type = "none"
 
 [youtube]
-# Downloads of a video or playlist address (YouTube; other sites of yt-dlp may work).
+# Downloads of a video or playlist address (tested: YouTube, Dailymotion, PeerTube, Arte; other sites of yt-dlp may work).
 # yt-dlp command; its own configuration file is still read (cookies, JavaScript runtime…), but the folder and the
 # options below replace the ones it sets. Windows with yt-dlp in WSL: ["wsl", "-e", "bash", "-lc", 'exec yt-dlp "$@"', "yt-dlp"]
 command = ["yt-dlp"]
 # Folder of the downloaded videos (a playlist goes into a subfolder named after it); empty = the output folder.
+# A Windows path even when yt-dlp runs in WSL: it is converted to /mnt/<drive letter>/….
 download_dir = ""
 # Best quality up to this height in pixels (720, 1080, 1440, 2160; 0 = no limit): no 4K files of several GB for subtitles.
 max_height = 1080

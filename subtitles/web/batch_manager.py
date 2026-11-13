@@ -185,6 +185,21 @@ class BatchManager:
         batch.save()
         return True
 
+    def stop(self, ident: str) -> bool:
+        """Pause now: the running videos are interrupted (the transcription server is told by the closed connection,
+        the translation stops between two chunks) and go back to the list; what they finished is kept on the disk."""
+        batch = self.all.get(ident)
+        if not batch or batch.state != BatchState.RUNNING:
+            return False
+        batch.state = BatchState.SUSPENDED
+        batch.save()
+        for v in batch.videos:
+            t = self.queue.get(v.get("task") or "") if v["state"] == VideoState.RUNNING else None
+            if t:
+                t.options["stopped"] = True        # task_changed puts the video back instead of marking it cancelled
+                self.queue.cancel(t.id)
+        return True
+
     def resume(self, ident: str, changes: dict | None = None) -> bool:
         """Starts a suspended batch again; `changes` (translator, transcription, languages, pause) apply to the videos not started yet."""
         batch = self.all.get(ident)
@@ -399,6 +414,11 @@ class BatchManager:
                 v["state"] = VideoState.TRANSLATED if self._left_to_dub(batch, t) else VideoState.DONE
             elif t.state == TaskState.ERROR:
                 v["state"], v["error"] = VideoState.ERROR, t.error
+            elif t.state == TaskState.CANCELLED and t.options.get("stopped"):
+                # "Stop": back in the list; the dubbing pass waits for its turn again, the rest starts again from the
+                # transcription, which is kept (and so are the translations and the separated voice)
+                v["state"] = VideoState.TRANSLATED if t.pass_no == 3 else VideoState.TODO
+                v["task"], v["error"] = None, ""
             elif t.state == TaskState.CANCELLED:
                 v["state"] = VideoState.CANCELLED
             if t.prepared and t.state in (TaskState.PAUSED, TaskState.DONE):

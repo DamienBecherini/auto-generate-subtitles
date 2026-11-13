@@ -272,6 +272,29 @@ async function saveTranslatorSettings() {
   if (changed) config = await api("PUT", "/api/config", config);
 }
 
+// --- Folded settings: once a piece of work is started, the form becomes one line until the next one is prepared ----
+
+function settingsSummary() {
+  const tr = engine("transcriptions", $("#opt-transcription").value), trans = engine("translators", $("#opt-translator").value);
+  const dest = [$("#opt-dest-next-to").checked && T("ui.summary.next_to"), $("#opt-dest-output").checked && T("ui.summary.output")].filter(Boolean);
+  return [T(pageGoal() === "mux" ? "ui.goal.dubbing" : "ui.goal.subtitles"), readLanguages().map(languageName).join(", "),
+          `${tr ? shortName(tr) : "?"} → ${trans ? shortName(trans) : "?"}`, dest.join(", ")].filter(Boolean).join(" · ");
+}
+
+/* The header of the zone stays visible: unfolded, its title and Fold; folded, the summary and Edit. A click toggles. */
+function foldSettings(folded) {
+  const bar = $("#settings-summary");
+  $("#settings-zone").hidden = folded;
+  bar.classList.toggle("open", !folded);
+  bar.setAttribute("aria-expanded", String(!folded));
+  $("#settings-summary-title").textContent = T(folded ? "ui.summary.title" : "ui.summary.open_title");
+  $("#settings-summary-text").textContent = folded ? settingsSummary() : "";
+  $("#btn-settings-edit").textContent = T(folded ? "ui.summary.edit" : "ui.summary.fold");
+}
+const toggleSettings = () => foldSettings(!$("#settings-zone").hidden);
+$("#settings-summary").addEventListener("click", toggleSettings);
+$("#settings-summary").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSettings(); } });
+
 // --- Starting -----------------------------------------------------------------------------------------------------
 
 function pageDestination() { return { next_to_video: $("#opt-dest-next-to").checked, output_dir: $("#opt-dest-output").checked }; }
@@ -335,6 +358,7 @@ async function start(source) {
     await savePageOptions();
     const t = await api("POST", "/api/tasks", taskOptions(source));
     $("#preview").hidden = true;
+    foldSettings(true);
     follow(t.id);
   } catch (err) {
     if (err.data?.folder) openFolder(source);
@@ -348,6 +372,7 @@ $("#form-source").addEventListener("submit", (ev) => { ev.preventDefault(); star
 let previewDelay = null;
 let lastPreview = null;          // {url, info} of the address read for the preview (video and/or playlist)
 $("#source").addEventListener("input", () => {
+  foldSettings(false);            // a new piece of work is being prepared
   clearTimeout(previewDelay);
   const v = $("#source").value.trim();
   if (!/^https?:\/\//.test(v)) { $("#preview").hidden = true; lastPreview = null; return; }
@@ -427,7 +452,7 @@ async function choosePath(type, startDir = "") {
 
 $("#btn-browse").addEventListener("click", async () => {
   const path = await choosePath("file");
-  if (path) { $("#source").value = path; $("#source").focus(); }
+  if (path) { $("#source").value = path; foldSettings(false); $("#source").focus(); }
 });
 $("#btn-output-folder").addEventListener("click", async () => {
   const path = await choosePath("folder", $("#opt-output-dir").value.trim());
@@ -441,6 +466,7 @@ for (const ev of ["dragleave", "drop"]) drop.addEventListener(ev, (e) => { e.pre
 drop.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) sendFile(f); });
 
 function sendFile(file) {
+  foldSettings(false);
   const prog = $("#drop-progress"), bar = prog.querySelector(".bar"), text = prog.querySelector(".text");
   prog.hidden = false; bar.style.width = "0"; text.textContent = T("ui.upload.copying", { file: file.name });
   const xhr = new XMLHttpRequest();
@@ -483,6 +509,7 @@ let scanId = null;      // inventory of the folder in progress
 let folderPlaylist = null;      // playlist the open folder comes from (videos that could not be downloaded)
 
 async function openFolder(path, playlist = null) {
+  foldSettings(false);
   $("#folder").hidden = false; $("#folder-actions").hidden = false; $("#btn-go").hidden = true;   // Start the batch replaces Start
   inventory = null;
   folderPlaylist = playlist;
@@ -573,14 +600,15 @@ function buildTree(e) {
     c.addEventListener("change", updateFolderSummary);
     const name = document.createElement("span"); name.className = "name"; name.textContent = v.name; name.title = v.path;
     const size = document.createElement("span"); size.className = "size"; size.textContent = formatBytes(v.size);
-    const badges = document.createElement("span");
+    const badges = document.createElement("span"), meta = document.createElement("span");
+    meta.className = "meta"; meta.append(size, badges);
     for (const code of v.subtitles) {
       const b = document.createElement("span"); b.className = "badge" + (targets.includes(code) ? " ok" : ""); b.textContent = code;
       b.title = T("ui.folder.existing_subtitles"); b.dataset.i18nTitle = "ui.folder.existing_subtitles"; badges.appendChild(b);
     }
     const language = document.createElement("select"); language.innerHTML = languages; language.dataset.role = "language"; language.value = byDefault;
     language.addEventListener("change", () => { language.dataset.touched = "1"; });
-    row.append(c, name, size, badges, language);
+    row.append(c, name, meta, language);
     container.appendChild(row);
   }
   updateFoldButton();
@@ -661,6 +689,7 @@ $("#btn-start-batch").addEventListener("click", async () => {
                                                       languages: o.languages, destination: o.destination, output_dir: o.output_dir, pause: o.pause, redo: o.redo,
                                                       stop: pageGoal(), replace: pageReplace(), review: claudeAvailable() && $("#opt-review").checked });
     closeFolder();
+    foldSettings(true);
     followBatch(batch.id);
   } catch (err) { alert(T("ui.err.start_batch", { error: err.message })); }
   finally { $("#btn-start-batch").disabled = false; }
@@ -691,6 +720,7 @@ async function loadBatch(file, startNow = false) {
     const batch = await api("POST", "/api/batches/load", { file });
     if (startNow) await api("POST", `/api/batches/${batch.id}/resume`, {});
     closeFolder();
+    foldSettings(true);           // a batch read back has its own settings
     followBatch(batch.id);
   } catch (err) { alert(T("ui.err.resume", { error: err.message })); }
 }
@@ -963,6 +993,7 @@ async function refreshBatch() {
   state.textContent = b.state === "running" ? T("ui.batch_step." + (b.step || { 1: "transcription", 2: "translation", 3: "dubbing" }[b.phase])) : label("ui.batch_state.", b.state);
   state.className = "state " + b.state;
   $("#btn-batch-suspend").hidden = b.state !== "running";
+  $("#btn-batch-stop").hidden = b.state !== "running";
   $("#btn-batch-resume").hidden = b.state !== "suspended";
   $("#btn-batch-cancel").hidden = ["done", "cancelled"].includes(b.state);
   $("#btn-batch-retry").hidden = !b.counts.error || b.state === "cancelled";
@@ -1085,6 +1116,7 @@ async function retryBatch(path) {
 }
 $("#btn-batch-retry").addEventListener("click", () => retryBatch());
 $("#btn-batch-suspend").addEventListener("click", () => batchAction("suspend"));
+$("#btn-batch-stop").addEventListener("click", () => batchAction("stop"));
 /* Suspended batch: its settings for what follows, editable here or with the lists at the top of the page. */
 function showSuspended(b) {
   batchSuspendedFor = b.id; suspendedBatch = b;
@@ -1386,9 +1418,26 @@ async function updateHistory() {
 // --- Settings -----------------------------------------------------------------------------------------------------
 
 const dlg = $("#dlg-settings");
-$("#btn-settings").addEventListener("click", () => { fillSettings(); dlg.showModal(); });
+/* Everything the form holds, to know whether something was changed and not saved (engines added or deleted included). */
+const settingsState = () => JSON.stringify([...dlg.querySelectorAll("input, select, textarea")].map((e) => (e.type === "checkbox" || e.type === "radio" ? e.checked : e.value)));
+let savedSettingsState = "";
+$("#btn-settings").addEventListener("click", () => { fillSettings(); dlg.showModal(); savedSettingsState = settingsState(); });
 $("#btn-close-settings").addEventListener("click", () => dlg.close());
 $("#btn-cancel-settings").addEventListener("click", () => dlg.close());
+
+/* Click outside the window, or Escape: closes, after asking if changes would be lost. */
+function leaveSettings() {
+  if (settingsState() !== savedSettingsState && !confirm(T("ui.cfg.discard"))) return;
+  dlg.close();
+}
+const outsideSettings = (e) => {
+  const r = dlg.getBoundingClientRect();
+  return e.target === dlg && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom);
+};
+let pressedOutside = false;      // the click must start outside too: a text selection released outside does not close
+dlg.addEventListener("pointerdown", (e) => { pressedOutside = outsideSettings(e); });
+dlg.addEventListener("click", (e) => { if (pressedOutside && outsideSettings(e)) leaveSettings(); pressedOutside = false; });
+dlg.addEventListener("cancel", (e) => { e.preventDefault(); leaveSettings(); });
 
 function fillSettings() {
   const c = config, s = c.subtitles || {};
@@ -1455,6 +1504,12 @@ function readEngine(el) {
   return m;
 }
 
+for (const [button, field, type] of [["#btn-cfg-output-dir", "#cfg-output-dir", "folder"], ["#btn-cfg-download-dir", "#cfg-download-dir", "download_folder"]])
+  $(button).addEventListener("click", async () => {
+    const path = await choosePath(type, $(field).value.trim() || $("#cfg-output-dir").value.trim());
+    if (path) $(field).value = path;
+  });
+
 $("#btn-add-transcription").addEventListener("click", () => $("#transcription-list").appendChild(engineRow("transcription", { id: "", name: "", url: "", key: "" }, false)));
 $("#btn-add-translator").addEventListener("click", () => $("#translator-list").appendChild(engineRow("translator", { id: "", name: "", type: "openai", model: "", url: "", key: "" }, false)));
 
@@ -1494,6 +1549,7 @@ $("#btn-save-settings").addEventListener("click", async () => {
     updateOutputZone();
     showTranslatorSettings();
     updateStatus();
+    savedSettingsState = settingsState();
     setTimeout(() => dlg.close(), 500);
   } catch (err) { msg.textContent = T("log.error", { error: err.message }); }
 });
@@ -1564,6 +1620,7 @@ function retranslate() {
   showTranslatorSettings(true); updateOutputZone(); updateGoal();
   $("#opt-pause-text").textContent = T($("#folder").hidden ? "ui.pause_option" : "ui.pause_option_batch");
   if (!$("#preview").hidden && lastPreview) showPreview();
+  foldSettings($("#settings-zone").hidden);                         // header of the settings in the new language
   if (!$("#playlist").hidden && lastPlaylist) showPlaylistProgress(lastPlaylist);
   if (folderPlaylist) $("#folder-note").textContent = playlistFailures(folderPlaylist);
   if (inventory) {
@@ -1597,6 +1654,7 @@ loadTranslations().then(() => {
   for (const s of ["#folder-tree", "#batch-videos", "#log", "#history"]) watchScrolling($(s));
   fillSpokenLanguages();
   fillLanguageChoice();
+  foldSettings(false);
   return load();
 }).then(() => {
   document.body.classList.remove("loading");

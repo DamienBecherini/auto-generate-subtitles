@@ -200,11 +200,16 @@ def prepare(r: Request, log=print, step=lambda name: None, cancelled=lambda: Fal
         key = config.resolve_key(m_tr.get("key", ""))
         tr_language = wanted_language if wanted_language != "fr" else None
         timeout = transcription_timeout(m_tr, audio_duration)
+        def ask():
+            return transcription.transcribe(m_tr["url"], audio, tr_language, timeout_s=timeout, key=key, cancelled=cancelled)
         try:
-            tr = transcription.transcribe(m_tr["url"], audio, tr_language, timeout_s=timeout, key=key)
-        except transcription.TranscriptionTimeout as e:
-            log(i18n.t("log.retry", error=e))      # answer lost on the way (already seen): a batch must not stay stuck
-            tr = transcription.transcribe(m_tr["url"], audio, tr_language, timeout_s=timeout, key=key)
+            try:
+                tr = ask()
+            except transcription.TranscriptionTimeout as e:
+                log(i18n.t("log.retry", error=e))      # answer lost on the way (already seen): a batch must not stay stuck
+                tr = ask()
+        except transcription.TranscriptionCancelled:
+            raise Cancelled() from None            # the server was told by the closed connection
         tr_file.write_text(json.dumps(tr, ensure_ascii=False, indent=1), encoding="utf-8")
         log(i18n.t("log.transcribed", s=round(time.perf_counter() - t), words=len(tr["words"]), segments=len(tr["segments"])))
     if not tr["words"]:
