@@ -45,14 +45,14 @@ function watchScrolling(el) {
   const zone = document.createElement("div"); zone.className = "scroll-zone";
   el.parentNode.insertBefore(zone, el);
   zone.appendChild(el);
-  const createArrow = (className, text, title, direction) => {
+  const createArrow = (className, text, titleKey, direction) => {
     const b = document.createElement("button");
-    b.type = "button"; b.className = className; b.textContent = text; b.hidden = true; b.title = title;
+    b.type = "button"; b.className = className; b.textContent = text; b.hidden = true; b.title = T(titleKey); b.dataset.i18nTitle = titleKey;
     b.addEventListener("click", () => el.scrollBy({ top: direction * el.clientHeight * 0.8, behavior: "smooth" }));
     zone.appendChild(b);
     return b;
   };
-  const up = createArrow("scroll-arrow up", "▴", T("ui.scroll_up"), -1), down = createArrow("scroll-arrow", "▾", T("ui.scroll_down"), 1);
+  const up = createArrow("scroll-arrow up", "▴", "ui.scroll_up", -1), down = createArrow("scroll-arrow", "▾", "ui.scroll_down", 1);
   let planned = false;
   const update = () => {
     planned = false;
@@ -87,14 +87,18 @@ async function load() {
   wanted.checked = true;
   updateGoal();
   $("#opt-review").checked = claudeAvailable(); $("#review-zone").hidden = !claudeAvailable();
+  updateGithubLink();
+  await updateStatus();
+  await updateHistory();
+  await checkLastBatch();
+}
+
+function updateGithubLink() {
   const github = (config.web || {}).github || "";          // link greyed out as long as the public repository does not exist
   const link = $("#github-link");
   link.href = github || "#";
   link.setAttribute("aria-disabled", github ? "false" : "true");
   link.title = github ? T("ui.github") : T("ui.github_unpublished");
-  await updateStatus();
-  await updateHistory();
-  await checkLastBatch();
 }
 
 // --- Target languages (checkboxes + free field for the other codes) ----------------------------------------------
@@ -114,10 +118,28 @@ function fillLanguageChoice() {
   sel.value = I18N.setting;
   sel.hidden = I18N.available.length < 2;
 }
+/* Without reloading the page: what is being prepared (folder selection, fields, open panels) stays as it is. */
 $("#language-choice").addEventListener("change", async () => {
-  try { config = await api("PUT", "/api/config", { ...config, ui_language: $("#language-choice").value }); location.reload(); }
-  catch (err) { alert(err.message); }
+  const setting = $("#language-choice").value;
+  try {
+    config = await api("PUT", "/api/config", { ...config, ui_language: setting });     // the log of the service follows too
+    await useLanguage(setting);
+    retranslate();
+  } catch (err) { alert(err.message); }
 });
+
+/* Language names of the selects built from #opt-language (spoken language: page, folder, each video). */
+function relabelLanguageSelects() {
+  for (const s of document.querySelectorAll("#opt-language, #folder-global-language, select[data-role=language]"))
+    for (const o of s.options) o.textContent = o.value ? languageName(o.value) : T("ui.auto_detect");
+}
+
+function relabelEngineSelects() {
+  for (const [list, selector] of [["transcriptions", "#opt-transcription, #batch-susp-transcription"],
+                                  ["translators", "#opt-translator, #pause-translator, #batch-translator, #batch-susp-translator"]])
+    for (const s of document.querySelectorAll(selector))
+      for (const o of s.options) { const m = engine(list, o.value); if (m) o.textContent = engineName(m); }
+}
 
 function fillLanguages(zone, codes) {
   zone.innerHTML = "";
@@ -196,9 +218,11 @@ const TRANSLATOR_FIELDS = {
 
 const textOrKey = (x) => (x.startsWith("ui.") ? T(x) : x);     // labels of TRANSLATOR_FIELDS
 
-function showTranslatorSettings() {
+/* keep: the values typed and not saved yet stay (change of language). */
+function showTranslatorSettings(keep = false) {
   const zone = $("#translator-engine"), m = engine("translators", $("#opt-translator").value);
   const fields = m ? TRANSLATOR_FIELDS[m.type || "openai"] || [] : [];
+  const typed = keep ? [...zone.querySelectorAll("[data-key]")].map((e) => [e.dataset.key, e.type === "checkbox" ? e.checked : e.value]) : [];
   zone.innerHTML = "";
   zone.hidden = !fields.length;
   if (!fields.length) return;
@@ -229,6 +253,10 @@ function showTranslatorSettings() {
       l.appendChild(e);
     }
     zone.appendChild(l);
+  }
+  for (const [key, value] of typed) {
+    const e = zone.querySelector(`[data-key="${key}"]`);
+    if (e) e[e.type === "checkbox" ? "checked" : "value"] = value;
   }
 }
 
@@ -438,8 +466,8 @@ $("#btn-folder-cancel").addEventListener("click", () => {
   else if (scanId) api("POST", `/api/folder/${scanId}/cancel`, {}).catch(() => {});
 });
 
-function buildTree(e) {
-  inventory = e;
+/* Summary of the folder and offer to resume the batch already there. */
+function showFolderHeader(e) {
   const folderCount = new Set(e.videos.map((v) => v.folder)).size;
   $("#folder-root").textContent = T("ui.folder.summary", { path: e.root, n: e.count }) + (folderCount > 1 ? " " + T("ui.folder.in_folders", { n: folderCount }) : "");
   const ex = $("#folder-existing-batch");
@@ -450,12 +478,22 @@ function buildTree(e) {
     ex.appendChild(button(T("ui.folder.resume_this_batch"), () => loadBatch(e.existing_batch)));
     ex.append(document.createTextNode(" " + T("ui.folder.or_new_batch")));
   }
+}
+
+function updateFoldButton() {
+  const groups = [...$("#folder-tree").querySelectorAll(".folder-rows")];
+  $("#btn-folder-fold").textContent = groups.some((g) => g.hidden) ? T("ui.folder.expand_all") : T("ui.folder.collapse_all");
+  $("#btn-folder-fold").hidden = groups.length < 2;
+}
+
+function buildTree(e) {
+  inventory = e;
+  const folderCount = new Set(e.videos.map((v) => v.folder)).size;
+  showFolderHeader(e);
   const tree = $("#folder-tree");
   tree.innerHTML = "";
   if (!e.count) tree.textContent = T("ui.folder.no_video");
   const targets = readLanguages(), folded = folderCount > 3, languages = $("#opt-language").innerHTML, byDefault = $("#opt-language").value || "";
-  $("#btn-folder-fold").textContent = folded ? T("ui.folder.expand_all") : T("ui.folder.collapse_all");
-  $("#btn-folder-fold").hidden = folderCount < 2;
   let container = null, current = null;
   for (const v of e.videos) {
     if (!container || v.folder !== current) {
@@ -469,12 +507,16 @@ function buildTree(e) {
     const name = document.createElement("span"); name.className = "name"; name.textContent = v.name; name.title = v.path;
     const size = document.createElement("span"); size.className = "size"; size.textContent = formatBytes(v.size);
     const badges = document.createElement("span");
-    for (const code of v.subtitles) { const b = document.createElement("span"); b.className = "badge" + (targets.includes(code) ? " ok" : ""); b.textContent = code; b.title = T("ui.folder.existing_subtitles"); badges.appendChild(b); }
+    for (const code of v.subtitles) {
+      const b = document.createElement("span"); b.className = "badge" + (targets.includes(code) ? " ok" : ""); b.textContent = code;
+      b.title = T("ui.folder.existing_subtitles"); b.dataset.i18nTitle = "ui.folder.existing_subtitles"; badges.appendChild(b);
+    }
     const language = document.createElement("select"); language.innerHTML = languages; language.dataset.role = "language"; language.value = byDefault;
     language.addEventListener("change", () => { language.dataset.touched = "1"; });
     row.append(c, name, size, badges, language);
     container.appendChild(row);
   }
+  updateFoldButton();
   updateFolderSummary();
 }
 
@@ -482,11 +524,12 @@ function addGroup(tree, folderName, folded) {
   const head = document.createElement("div"); head.className = "folder-group";
   const rows = document.createElement("div"); rows.className = "folder-rows"; rows.hidden = folded;
   const arrow = document.createElement("button"); arrow.type = "button"; arrow.className = "fold"; arrow.textContent = folded ? "▸" : "▾";
-  const toggle = () => { rows.hidden = !rows.hidden; arrow.textContent = rows.hidden ? "▸" : "▾"; };
+  const toggle = () => { rows.hidden = !rows.hidden; arrow.textContent = rows.hidden ? "▸" : "▾"; updateFoldButton(); };
   arrow.addEventListener("click", toggle);
   const c = document.createElement("input"); c.type = "checkbox";
   c.addEventListener("change", () => { for (const x of rows.querySelectorAll("input[type=checkbox]")) x.checked = c.checked; updateFolderSummary(); });
   const name = document.createElement("span"); name.className = "folder-name"; name.textContent = folderName || T("ui.folder.root"); name.addEventListener("click", toggle);
+  if (!folderName) name.dataset.i18n = "ui.folder.root";
   const count = document.createElement("span"); count.className = "help"; count.dataset.role = "count";
   head.append(arrow, c, name, count);
   tree.append(head, rows);
@@ -497,7 +540,7 @@ $("#btn-folder-fold").addEventListener("click", () => {
   const groups = [...$("#folder-tree").querySelectorAll(".folder-rows")];
   const unfold = groups.some((g) => g.hidden);
   for (const g of groups) { g.hidden = !unfold; g.previousElementSibling.querySelector(".fold").textContent = unfold ? "▾" : "▸"; }
-  $("#btn-folder-fold").textContent = unfold ? T("ui.folder.collapse_all") : T("ui.folder.expand_all");
+  updateFoldButton();
 });
 
 /* The language read on the audio track arrives in the background; a choice made by hand is never overwritten. */
@@ -618,6 +661,16 @@ async function continueEpisode(path) {
 
 let validationVideo = "";                         // video whose names are shown; empty for the whole batch
 
+function whyText(p) {
+  return `${p.status === "uncertain" ? T("ui.names.uncertain") + " " : ""}${p.reason || ""} (${T("ui.names.stats", { n: p.occurrences || 0, confidence: p.confidence ? label("ui.names.confidence.", p.confidence) : "?" })})`;
+}
+
+function validationTexts() {
+  const n = $("#validation-rows").childElementCount, path = validationVideo;
+  $("#validation-title").textContent = path ? T("ui.names.title_video", { n, file: fileName(path) }) : T("ui.names.title_batch", { n });
+  $("#btn-validation-validate").textContent = path ? T("ui.names.validate_continue") : T("ui.names.validate");
+}
+
 function validationRow(p) {
   const tr = document.createElement("tr");
   tr.dataset.transcribed = p.transcribed;
@@ -625,8 +678,9 @@ function validationRow(p) {
   const tick = document.createElement("input"); tick.type = "checkbox"; tick.dataset.field = "accept";
   tick.checked = !!p.spelling && p.status !== "uncertain" && p.confidence !== "low";
   const why = document.createElement("div"); why.className = "why";
-  why.textContent = `${p.status === "uncertain" ? T("ui.names.uncertain") + " " : ""}${p.reason || ""} (${T("ui.names.stats", { n: p.occurrences || 0, confidence: p.confidence ? label("ui.names.confidence.", p.confidence) : "?" })})`;
+  why.textContent = whyText(p);
   why.title = (p.examples || []).join("\n");
+  tr.proposal = p;
   for (const content of [tick, p.transcribed, field(p.spelling, "spelling"), field(p.french, "french"), why]) {
     const td = document.createElement("td"); td.append(content); tr.appendChild(td);
   }
@@ -640,9 +694,8 @@ async function openValidation(path) {
     const r = await api("GET", `/api/batches/${id}/review${path ? "?path=" + encodeURIComponent(path) : ""}`);
     if (!r.proposals.length && path) return continueEpisode(path);
     validationVideo = path || "";
-    $("#validation-title").textContent = path ? T("ui.names.title_video", { n: r.proposals.length, file: fileName(path) }) : T("ui.names.title_batch", { n: r.proposals.length });
     $("#validation-rows").replaceChildren(...r.proposals.map(validationRow));
-    $("#btn-validation-validate").textContent = path ? T("ui.names.validate_continue") : T("ui.names.validate");
+    validationTexts();
     $("#validation-message").textContent = "";
     $("#validation").hidden = false;
     $("#validation").scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -682,6 +735,7 @@ $("#batch-replace").addEventListener("change", changeBatchGoal);
 let currentBatch = null, batchTimer = null, batchPausedFor = null, lastBatchEstimate = null;
 let batchSuspendedFor = null, suspendedBatch = null;    // suspended batch whose settings panel is built
 let batchVideoSeen = null;                               // running video already centred in the batch list
+let lastBatchView = null;                                // last state of the followed batch read from the service
 
 function followBatch(id) {
   currentBatch = id; batchPausedFor = null; batchSuspendedFor = null; batchVideoSeen = null;
@@ -709,6 +763,7 @@ function updateBatchList(ul, b) {
       r.n.className = "src"; r.n.textContent = v.name; r.d.className = "date";
       r.retry = document.createElement("button");
       Object.assign(r.retry, { type: "button", className: "secondary small", textContent: T("ui.batch.retry"), title: T("ui.batch.retry_one_title"), hidden: true });
+      Object.assign(r.retry.dataset, { i18n: "ui.batch.retry", i18nTitle: "ui.batch.retry_one_title" });
       r.retry.addEventListener("click", () => retryBatch(v.path));
       r.dots = document.createElement("span"); r.dots.className = "dots";
       r.continue = document.createElement("button");
@@ -751,8 +806,10 @@ const parallelFollow = new Map();              // task → { name, read, done, t
 
 function videoCode(name) { return /S\d+E\d+/i.exec(name)?.[0] || name.replace(/\.[^.]+$/, "").slice(0, 24); }
 
+let parallelLeft = false;                      // the task card shows the end of a parallel translation
+
 function enterParallel() {
-  parallelMode = true; commonLines = []; parallelFollow.clear();
+  parallelMode = true; parallelLeft = false; commonLines = []; parallelFollow.clear();
   clearInterval(timer); timer = null; currentTask = null;
   showRetry(null); $("#task").hidden = false; $("#steps").hidden = true; $("#btn-cancel").hidden = true; $("#pause").hidden = true; $("#result").hidden = true;
   $("#log-text").textContent = ""; $("#log-timer").textContent = "";
@@ -764,8 +821,14 @@ function leaveParallel() {
   parallelMode = false; parallelFollow.clear(); taskProcess = null;
   showProcess();
   $("#batch-active").hidden = true;            // the common log stays readable until the next followed task
+  parallelLeft = true;
+  parallelEndTexts();
+  $("#task-state").className = "state done";
+}
+
+function parallelEndTexts() {
   $("#task-title").textContent = T("ui.parallel.last");
-  $("#task-state").textContent = T("ui.parallel.finished"); $("#task-state").className = "state done";
+  $("#task-state").textContent = T("ui.parallel.finished");
 }
 
 async function readParallelFollow(id, s) {
@@ -826,6 +889,7 @@ async function refreshBatch() {
   if (!currentBatch) return;
   let b;
   try { b = await api("GET", `/api/batches/${currentBatch}`); } catch (err) { return; }
+  lastBatchView = b;
   $("#batch-root").textContent = b.root;
   const state = $("#batch-state");
   // The real step of the running video: without a pause, phase 1 goes up to the translation.
@@ -884,10 +948,14 @@ async function refreshBatch() {
   if (["done", "cancelled"].includes(b.state)) { clearInterval(batchTimer); batchTimer = null; finishedBatch = currentBatch; currentBatch = null; updateHistory(); }
 }
 
+function batchPauseTexts(b) {
+  $("#batch-pause-summary").textContent = T("ui.batch.ready_to_translate", { n: b.counts.prepared });
+}
+
 async function showBatchPause(b) {
   batchPausedFor = b.id;
   $("#batch-pause").hidden = false; $("#batch-message").textContent = "";
-  $("#batch-pause-summary").textContent = T("ui.batch.ready_to_translate", { n: b.counts.prepared });
+  batchPauseTexts(b);
   fillSelect($("#batch-translator"), config.translators, b.options?.translator || config.active_translator);
   fillLanguages($("#batch-languages"), b.options?.languages || config.target_languages || ["fr"]);
   const update = async () => {
@@ -1005,8 +1073,10 @@ async function retry(id) {
   catch (err) { alert(T("ui.err.retry", { error: err.message })); }
 }
 
+let lastTaskView = null;       // last state of the displayed task read from the service
+
 function follow(id) {
-  currentTask = id; logRead = 0; pausedFor = null; showRetry(null);
+  currentTask = id; logRead = 0; pausedFor = null; parallelLeft = false; showRetry(null);
   $("#steps").hidden = false;                 // hidden during a parallel translation
   $("#log-text").textContent = ""; $("#log-timer").textContent = ""; $("#result").hidden = true; $("#pause").hidden = true; $("#task").hidden = false;
   for (const li of document.querySelectorAll("#steps li")) li.className = "";
@@ -1015,15 +1085,20 @@ function follow(id) {
   return refresh();
 }
 
+function taskTexts(t) {
+  $("#task-title").textContent = fileName(t.source);
+  $("#task-state").textContent = label("ui.task_state.", t.state);
+}
+
 async function refresh() {
   if (!currentTask) return;
   let t;
   try { t = await api("GET", `/api/tasks/${currentTask}?since=${logRead}`); } catch (err) { return; }
   if (parallelMode) return;
-  $("#task-title").textContent = fileName(t.source); $("#task-title").title = t.source;
-  const state = $("#task-state");
-  state.textContent = label("ui.task_state.", t.state);
-  state.className = "state " + t.state;
+  lastTaskView = t;
+  taskTexts(t);
+  $("#task-title").title = t.source;
+  $("#task-state").className = "state " + t.state;
   $("#btn-cancel").hidden = !["queued", "running", "paused"].includes(t.state);
   showRetry(t);
   const order = ["source", "transcription", "segmentation", "review", "translation", "files", "dubbing", "mux"];
@@ -1057,18 +1132,22 @@ async function refresh() {
     clearInterval(timer); timer = null;
     const finished = currentTask; currentTask = null;
     updateHistory(); updateStatus();
-    if (finished && t.state === "done") document.title = T("ui.title_done");
+    if (finished && t.state === "done") { I18N.titleKey = "ui.title_done"; document.title = T(I18N.titleKey); }
   }
 }
 
 // --- Pause before the translation: estimate and choice of the translator --------------------------------------------
 
+function pauseTexts(t) {
+  $("#btn-translate").textContent = t.options?.until === "mux" ? T("ui.translate_dub") : T("ui.translate");
+  $("#pause-summary").textContent = t.prepared ? T("ui.task.prepared", { n: t.prepared.count, lang: languageName(t.prepared.language), file: t.prepared.source_srt }) : "";
+}
+
 function showPause(t) {
   pausedFor = t.id;
   const z = $("#pause");
   z.hidden = false;
-  $("#btn-translate").textContent = t.options?.until === "mux" ? T("ui.translate_dub") : T("ui.translate");
-  $("#pause-summary").textContent = t.prepared ? T("ui.task.prepared", { n: t.prepared.count, lang: languageName(t.prepared.language), file: t.prepared.source_srt }) : "";
+  pauseTexts(t);
   $("#pause-message").textContent = "";
   fillSelect($("#pause-translator"), config.translators, t.options?.translator || config.active_translator);
   fillLanguages($("#pause-languages"), t.options?.languages || config.target_languages || ["fr"]);
@@ -1124,7 +1203,10 @@ async function resume(translator) {
 $("#btn-translate").addEventListener("click", () => resume($("#pause-translator").value));
 $("#btn-no-translation").addEventListener("click", () => resume("none"));
 
+let lastResult = null;
+
 function showResult(r) {
+  lastResult = r;
   const z = $("#result");
   z.hidden = false;
   z.innerHTML = "";
@@ -1174,14 +1256,17 @@ function logAccordion(t, title) {
     const open = !zone || zone.hidden;
     if (open && !zone) { text.hidden = false; watchScrolling(text); zone = text.parentElement; }
     else zone.hidden = !open;
-    b.textContent = T("ui.log.button") + (open ? " ▾" : " ▸");
+    arrow.data = open ? " ▾" : " ▸";
     b.setAttribute("aria-expanded", String(open));
     if (!open) { openLogs.delete(t.id); return; }
     openLogs.add(t.id);
     text.textContent = T("ui.log.loading");
     await fetchLog();
   };
-  const b = button(T("ui.log.button") + " ▸", async () => toggle());
+  const b = button("", async () => toggle());
+  const caption = document.createElement("span"), arrow = document.createTextNode(" ▸");
+  caption.textContent = T("ui.log.button"); caption.dataset.i18n = "ui.log.button";
+  b.append(caption, arrow);
   b.setAttribute("aria-expanded", "false");
   title.classList.add("clickable");
   title.onclick = toggle;
@@ -1345,7 +1430,10 @@ function formatBytes(o) {
   return o >= 1e9 ? T("ui.size.gb", { n: formatNumber(o / 1e9, { maximumFractionDigits: 2 }) }) : o >= 1e6 ? T("ui.size.mb", { n: formatNumber(Math.round(o / 1e6)) }) : T("ui.size.kb", { n: formatNumber(Math.round(o / 1e3)) });
 }
 
+let lastCategories = null;
+
 function showSummary(categories) {
+  lastCategories = categories;
   for (const el of document.querySelectorAll("[data-summary]")) {
     const b = categories[el.dataset.summary];
     el.textContent = b ? `(${T("ui.cfg.files", { n: b.files })}, ${formatBytes(b.bytes)})` : "";
@@ -1386,6 +1474,38 @@ function formatDate(t) {
   const d = new Date(t * 1000);
   return d.toLocaleDateString(I18N.language, { day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString(I18N.language, { hour: "2-digit", minute: "2-digit" });
 }
+/* After a change of language (useLanguage has translated the fixed texts): the texts built here are redone from what
+   is shown, without losing anything. Choices in progress stay: ticked videos and languages, typed fields, open panels.
+   The followed task and batch are rewritten by their next polling (1 to 2 s). */
+function retranslate() {
+  updateThemeButton(); updateGithubLink(); fillLanguageChoice();
+  relabelLanguageSelects(); relabelEngineSelects();
+  for (const zone of document.querySelectorAll("#opt-languages, #pause-languages, #batch-languages, #batch-susp-languages"))
+    if (zone.childElementCount) fillLanguages(zone, readLanguages(zone));
+  showTranslatorSettings(true); updateOutputZone(); updateGoal();
+  $("#opt-pause-text").textContent = T($("#folder").hidden ? "ui.pause_option" : "ui.pause_option_batch");
+  if (inventory) {
+    showFolderHeader(inventory); updateFoldButton(); updateFolderSummary();
+    for (const s of document.querySelectorAll("select[data-role=language][data-track]")) s.title = T("ui.folder.track_tag", { code: s.dataset.track });
+    for (const row of folderRows()) row.querySelector(".size").textContent = formatBytes(Number(row.dataset.size));
+  }
+  if (!$("#validation").hidden) {
+    validationTexts();
+    for (const tr of $("#validation-rows").children) tr.querySelector(".why").textContent = whyText(tr.proposal);
+  }
+  if (!$("#pause").hidden && lastTaskView) { pauseTexts(lastTaskView); showCosts(lastEstimate); }
+  if (!$("#batch-pause").hidden && lastBatchView) { batchPauseTexts(lastBatchView); showCostsIn($("#batch-costs"), lastBatchEstimate, $("#batch-translator").value); }
+  if (!$("#result").hidden && lastResult) showResult(lastResult);
+  if (parallelMode) $("#task-state").textContent = label("ui.task_state.", "running");
+  else if (parallelLeft) parallelEndTexts();
+  else if (lastTaskView) taskTexts(lastTaskView);
+  if (!currentBatch && finishedBatch && !$("#batch").hidden) followBatch(finishedBatch);     // no more polling: read once again
+  if (lastCategories) showSummary(lastCategories);
+  if (!$("#last-batch").hidden) checkLastBatch();
+  updateStatus();
+  updateHistory();
+}
+
 for (const id of ["opt-transcription", "opt-translator"]) $("#" + id).addEventListener("change", updateStatus);
 $("#opt-translator").addEventListener("change", () => { showTranslatorSettings(); updateDefaultPause(); });
 setInterval(updateStatus, 15000);

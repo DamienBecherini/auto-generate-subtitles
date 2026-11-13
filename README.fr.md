@@ -36,6 +36,17 @@ et traduite en anglais et en espagnol par une IA locale (Qwen3.6 avec llama.cpp)
 
 ## Démarrage rapide
 
+**Avec un agent IA de code.** Ouvrez Claude Code, Codex, Cursor ou un autre agent sur la machine qui fera les sous-titres, et collez :
+
+```
+Install and configure auto-generate-subtitles from https://github.com/DamienBecherini/auto-generate-subtitles on this machine.
+Follow its AGENTS.md. Ask me before anything that needs a password or administrator rights.
+```
+
+Il vérifie Python, `ffmpeg` et `yt-dlp`, cherche un serveur de transcription déjà lancé (ou propose d'installer [transcription-handy-like](https://github.com/DamienBecherini/transcription-handy-like/blob/main/README.fr.md) avec Docker), mesure la machine (processeur, mémoire, carte graphique), puis vous demande les langues voulues et recommande la façon de traduire : pas du tout, avec un modèle local adapté à votre matériel ou avec une API payante. Il écrit les réglages avec vous, les clés seulement sous forme de références, puis teste chaque moteur. [AGENTS.md](AGENTS.md) est la procédure qu'il suit. Un agent lance des commandes sur votre machine : lisez ce qu'il propose avant d'accepter.
+
+**Ou à la main.**
+
 **1. Lancez un serveur de transcription.** Cet outil envoie l'audio à un serveur que vous faites tourner. Utilisez **[transcription-handy-like](https://github.com/DamienBecherini/transcription-handy-like/blob/main/README.fr.md)** : son [démarrage rapide](https://github.com/DamienBecherini/transcription-handy-like/blob/main/README.fr.md#démarrage-rapide-sur-votre-ordinateur) tient en trois commandes avec Docker, et il écoute à l'adresse attendue ici par défaut.
 
 **2. Installez cet outil.** Il faut Python 3.11 ou plus, ainsi que `ffmpeg` et `ffprobe` dans le `PATH`. `yt-dlp` ne sert que pour les adresses YouTube.

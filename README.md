@@ -44,6 +44,17 @@ into French and Spanish by a local LLM (Qwen3.6 with llama.cpp), at no cost.
 
 ## Quick start
 
+**With an AI coding agent.** Open Claude Code, Codex, Cursor or another agent on the machine that will make the subtitles, and paste:
+
+```
+Install and configure auto-generate-subtitles from https://github.com/DamienBecherini/auto-generate-subtitles on this machine.
+Follow its AGENTS.md. Ask me before anything that needs a password or administrator rights.
+```
+
+It checks Python, `ffmpeg` and `yt-dlp`, looks for a transcription server already running (or offers to set up [transcription-handy-like](https://github.com/DamienBecherini/transcription-handy-like) with Docker), measures the machine (processor, memory, graphics card), then asks you which languages you want and recommends how to translate: not at all, with a local model suited to your hardware, or with a paid API. It writes the settings with you, keys as references only, then tests each engine. [AGENTS.md](AGENTS.md) is the procedure it follows. An agent runs commands on your machine: read what it proposes before you accept.
+
+**Or by hand.**
+
 **1. Start a transcription server.** This tool sends the audio to a server you run. Use **[transcription-handy-like](https://github.com/DamienBecherini/transcription-handy-like)**: its [quick start](https://github.com/DamienBecherini/transcription-handy-like#quick-start-on-your-computer) takes three commands with Docker, and it listens on the address expected here by default.
 
 **2. Install this tool.** You need Python 3.11 or later, and `ffmpeg` and `ffprobe` in the `PATH`. `yt-dlp` is needed for YouTube addresses only.

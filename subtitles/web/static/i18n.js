@@ -5,7 +5,7 @@
    data-i18n-placeholder, data-i18n-aria-label. In the code: T("key", { parameters }). */
 "use strict";
 
-const I18N = { language: "en", texts: {}, fallback: {}, available: ["en"], setting: "" };
+const I18N = { language: "en", texts: {}, fallback: {}, available: ["en"], setting: "", titleKey: "ui.title" };
 
 function pickLanguage(wanted, available) {
   for (const v of wanted) {
@@ -17,19 +17,27 @@ function pickLanguage(wanted, available) {
   return available.includes("en") ? "en" : available[0] || "en";
 }
 
+async function readCatalog(code) {
+  try { const r = await fetch(`/locales/${code}.json`); return r.ok ? await r.json() : {}; } catch (e) { return {}; }
+}
+
 async function loadTranslations() {
-  const read = async (code) => {
-    try { const r = await fetch(`/locales/${code}.json`); return r.ok ? await r.json() : {}; } catch (e) { return {}; }
-  };
   try {
     const d = await (await fetch("/api/languages")).json();
     I18N.available = d.available?.length ? d.available : ["en"];
     I18N.setting = d.setting || "";
   } catch (e) { /* service unreachable: the page will say so; fallback texts */ }
-  I18N.language = pickLanguage([I18N.setting, ...(navigator.languages || [navigator.language])], I18N.available);
-  [I18N.texts, I18N.fallback] = await Promise.all([read(I18N.language), I18N.language === "en" ? {} : read("en")]);
-  document.documentElement.lang = I18N.language;
-  document.title = T("ui.title");
+  await useLanguage(I18N.setting);
+}
+
+/* Language chosen ("" = the browser's): catalogs loaded, then the fixed texts of the page translated in place.
+   The texts built by the script are redone by the page itself (app.js, retranslate). */
+async function useLanguage(setting) {
+  const code = pickLanguage([setting, ...(navigator.languages || [navigator.language])], I18N.available);
+  const [texts, fallback] = await Promise.all([readCatalog(code), code === "en" ? {} : readCatalog("en")]);
+  Object.assign(I18N, { setting: setting || "", language: code, texts, fallback });
+  document.documentElement.lang = code;
+  document.title = T(I18N.titleKey);
   translatePage(document);
 }
 
