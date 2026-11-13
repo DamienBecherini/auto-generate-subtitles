@@ -1,32 +1,7 @@
 """Local HTTP server of the interface (standard library, like the supervision).
 
-  GET  /                         the page
-  GET  /api/health               "local service" contract v2: {state, contract, service, version, busy, activity, remaining_work_s, idle}
-  GET  /api/status               active engines, state of the local transcription server and of the local AI, current task
-  GET  /api/config  PUT /api/config      (ui_language: language imposed on the page and the log, empty = automatic)
-  GET  /api/languages            available interface languages and setting     GET /locales/<code>.json   catalog
-  POST /api/tasks  {source, transcription?, translator?, language?, languages?, output_dir?, destination?, redo?, pause?}   GET /api/tasks
-  GET  /api/tasks/<id>?since=N     POST /api/tasks/<id>/cancel     POST /api/tasks/<id>/retry (task in error)
-  GET  /api/tasks/<id>/estimate?languages=fr,en      estimated cost (paused task) for these languages
-  POST /api/tasks/<id>/translate {translator?, languages?}   second phase of a paused task ("none" = finish without translating)
-  GET  /api/cleanup              size of the working folders per category     POST /api/cleanup {options} → deleted per category
-  POST /api/folder {path}        starts the inventory of a folder in the background → {id, state…}
-  GET  /api/folder/<id>[?videos=1]   progress, languages of the audio tracks, list of the videos once scanned
-  POST /api/folder/<id>/cancel
-  POST /api/batches {root, videos: [{path, language}], transcription?, translator?, languages?, destination?, output_dir?, pause?}
-  GET  /api/batches   GET /api/batches/<id>   GET /api/batches/<id>/estimate?languages=
-  POST /api/batches/load {file}  reads a subtitles.batch.json back (resume after an interruption) → suspended batch, to resume
-  POST /api/batches/<id>/suspend | cancel | translate {translator?, languages?, stop?} | resume {translator?, transcription?, languages?, pause?, stop?}
-  POST /api/batches/<id>/continue {path}   one video up to the end of what the batch must produce, before the others
-  POST /api/batches/<id>/goal {stop}       translation (subtitles only) or mux (subtitles + dubbing)
-  GET  /api/batches/<id>/review?path=   names to check     POST /api/batches/<id>/validate {decisions: [{transcribed, spelling, french, accept}]}
-  GET  /api/batches/last         batch left unfinished at the previous session     POST /api/batches/last/forget
-  PUT  /api/files?name=<name>    body = the file (drag and drop) → copied into the output folder
-  POST /api/local-transcription/stop   stops the local transcription server started from here
-  POST /api/dialog {type: "file"|"folder"|"batch"|"source_folder", start?}   system dialog box → {path}
-  POST /api/open {path}          opens the folder (file selected) in the file manager
-  POST /api/test {kind: "transcription"|"translator", engine: {...}}
-  POST /api/youtube {url}        title, duration and target file, without downloading
+Each route is a function declared with @route("METHOD", "/api/path/{id}"), its body fields in its docstring;
+Handler._dispatch finds it, turns the errors into JSON answers and sends the result.
 """
 import shutil
 import json
@@ -41,6 +16,7 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Callable, NamedTuple
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .. import __version__, cleanup, config, folder, i18n, language, local_transcription, source, steps, transcription, translation
@@ -201,6 +177,466 @@ def test_engine(kind: str, m: dict) -> dict:
     raise RequestError(400, i18n.t("err.unknown_kind"))
 
 
+# --- router ---
+class Raw(NamedTuple):
+    """Response that is not JSON: a file of the page or a translation catalog."""
+    body: bytes
+    content_type: str
+
+
+ROUTES: list[tuple[str, re.Pattern, Callable]] = []
+
+
+def _compile(pattern: str) -> re.Pattern:
+    """"/api/tasks/{id}" → {id}: hexadecimal identifier; "{name:regex}": parameter with its own expression."""
+    return re.compile(re.sub(r"\{(\w+)(?::([^}]+))?\}", lambda m: f"(?P<{m.group(1)}>{m.group(2) or '[0-9a-f]+'})", pattern))
+
+
+def route(method: str, pattern: str):
+    """Records the decorated function as the answer to `method pattern`; the parameters of the path are passed by name.
+
+    The function receives the Request and returns (code, data): data is sent as JSON, or as is if it is a Raw."""
+    regex = _compile(pattern)
+
+    def register(fn):
+        ROUTES.append((method, regex, fn))
+        return fn
+    return register
+
+
+def resolve(method: str, path: str) -> tuple[Callable, dict] | None:
+    for m, regex, fn in ROUTES:
+        match = regex.fullmatch(path)
+        if m == method and match:
+            return fn, match.groupdict()
+    return None
+
+
+class Request:
+    MAX_JSON = 5_000_000
+
+    def __init__(self, handler: BaseHTTPRequestHandler, url):
+        self.path = url.path
+        self.query = parse_qs(url.query)
+        self.headers = handler.headers
+        self._rfile = handler.rfile
+        self.length = int(handler.headers.get("Content-Length") or 0)
+        self.consumed = 0
+        self._body = None
+
+    def arg(self, name: str, default=None):
+        """First value of a parameter of the query string."""
+        return self.query.get(name, [default])[0]
+
+    def read(self, n: int) -> bytes:
+        block = self._rfile.read(min(n, self.length - self.consumed))
+        self.consumed += len(block)
+        return block
+
+    def json(self) -> dict:
+        if self._body is None:
+            if self.length > self.MAX_JSON:
+                raise RequestError(413, i18n.t("err.body_too_large"))
+            self._body = json.loads(self.read(self.length) or b"{}")
+        return self._body
+
+    def drain(self):
+        """Reads what the route has left of the body: a connection closed on unread data is reset (Windows) and the
+        client loses the answer."""
+        left = self.length - self.consumed
+        if 0 < left <= self.MAX_JSON:
+            self.read(left)
+
+
+def _not_found():
+    return RequestError(404, i18n.t("err.not_found"))
+
+
+# --- page, catalogs, state ---
+@route("GET", "/")
+def page(req):
+    return static_file(req, "index.html")
+
+
+@route("GET", "/static/{name:.+}")
+def static_file(req, name):
+    f = (STATIC / name).resolve()
+    if not f.is_file() or STATIC not in f.parents:
+        raise _not_found()
+    return 200, Raw(f.read_bytes(), TYPES.get(f.suffix, "application/octet-stream"))
+
+
+@route("GET", "/locales/{name:.+}")
+def catalog(req, name):
+    """Translation catalog of a language (the same files as the messages of the server)."""
+    code = name.removesuffix(".json")
+    if code not in i18n.available():
+        raise _not_found()
+    return 200, Raw((i18n.LOCALES_DIR / f"{code}.json").read_bytes(), "application/json; charset=utf-8")
+
+
+@route("GET", "/api/languages")
+def languages(req):
+    """Available interface languages and setting."""
+    setting = config.load().get("ui_language") or ""
+    return 200, {"available": i18n.available(), "setting": i18n.pick(setting) or ""}
+
+
+@route("GET", "/api/health")
+def get_health(req):
+    """"local service" contract v2: {state, contract, service, version, busy, activity, remaining_work_s, idle}."""
+    return 200, health()
+
+
+@route("GET", "/api/status")
+def status(req):
+    """Active engines, state of the local transcription server and of the local AI, current task."""
+    cfg = config.load()
+    current = manager.current() or next(iter(reversed(manager.paused())), None)
+    batch = manager.active_batch()
+    return 200, {"batch": batch.summary() if batch else None,
+                 "active_transcription": cfg.get("active_transcription"), "active_translator": cfg.get("active_translator"),
+                 "output_dir": cfg.get("output_dir"), "language": cfg.get("language", ""),
+                 "local_transcription": local_transcription_state(cfg), "local_ai": local_ai_state(cfg),
+                 "task": current.summary() if current else None, "user_config": str(config.USER_FILE)}
+
+
+@route("GET", "/api/config")
+def get_config(req):
+    return 200, config.load()
+
+
+@route("PUT", "/api/config")
+def put_config(req):
+    """ui_language: language imposed on the page and the log, empty = automatic."""
+    cfg = req.json()
+    config.save(cfg)
+    i18n.set_language(cfg.get("ui_language"))
+    return 200, config.load()
+
+
+# --- tasks ---
+@route("GET", "/api/tasks")
+def list_tasks(req):
+    return 200, manager.all_tasks()
+
+
+@route("POST", "/api/tasks")
+def create_task(req):
+    """{source, transcription?, translator?, language?, languages?, output_dir?, destination?, redo?, pause?, until?, replace?}"""
+    d = req.json()
+    src = (d.get("source") or "").strip().strip('"')
+    if not src:
+        raise RequestError(400, i18n.t("err.empty_source"))
+    if not source.is_url(src) and Path(src).is_dir():
+        return 409, {"error": i18n.t("err.is_folder"), "folder": True}
+    options = {"source": src, "transcription": d.get("transcription") or "", "translator": d.get("translator") or "",
+               "language": d.get("language"), "output_dir": (d.get("output_dir") or "").strip(), "redo": bool(d.get("redo"))}
+    if d.get("languages") is not None:
+        options["languages"] = language.normalize_codes(d["languages"])
+    if isinstance(d.get("destination"), dict):
+        options["destination"] = {k: bool(d["destination"].get(k)) for k in ("next_to_video", "output_dir")}
+    if d.get("pause") is not None:
+        options["pause"] = bool(d["pause"])
+    if d.get("until") == "mux":
+        options.update(until="mux", continued=True, replace=bool(d.get("replace")))
+    return 201, manager.add(options).summary()
+
+
+@route("GET", "/api/tasks/{id}")
+def get_task(req, id):
+    """?since=N: log lines from N."""
+    d = manager.detail(id, int(req.arg("since", "0")))
+    if d is None:
+        raise RequestError(404, i18n.t("err.unknown_task"))
+    return 200, d
+
+
+@route("GET", "/api/tasks/{id}/estimate")
+def estimate_task(req, id):
+    """?languages=fr,en: estimated cost of a paused task for these languages."""
+    e = manager.estimate(id, req.arg("languages"))
+    if e is None:
+        raise RequestError(404, i18n.t("err.task_not_prepared"))
+    return 200, e
+
+
+@route("POST", "/api/tasks/{id}/translate")
+def translate_task(req, id):
+    """{translator?, languages?}: second phase of a paused task ("none" = finish without translating)."""
+    d = req.json()
+    t = manager.resume(id, d.get("translator"), d.get("languages"))
+    if t is None:
+        raise RequestError(409, i18n.t("err.task_not_paused"))
+    return 200, t.summary()
+
+
+@route("POST", "/api/tasks/{id}/retry")
+def retry_task(req, id):
+    """Task in error."""
+    t = manager.retry(id)
+    if t is None:
+        raise RequestError(404, i18n.t("err.task_not_in_error"))
+    return 200, {"id": t.id}
+
+
+@route("POST", "/api/tasks/{id}/cancel")
+def cancel_task(req, id):
+    return 200, {"ok": manager.cancel(id)}
+
+
+# --- folder inventory (one at a time) ---
+@route("POST", "/api/folder")
+def scan_folder(req):
+    """{path, recursive?}: starts the inventory in the background → {id, state…}."""
+    global current_scan
+    d = req.json()
+    path = Path((d.get("path") or "").strip().strip('"'))
+    if not path.is_dir():
+        raise RequestError(400, i18n.t("err.folder_not_found", path=path))
+    if current_scan:
+        current_scan.cancel()
+    current_scan = folder.FolderScan(path, recursive=d.get("recursive", True))
+    current_scan.start()
+    return 202, current_scan.to_dict()
+
+
+@route("GET", "/api/folder/{id}")
+def get_scan(req, id):
+    """Progress, languages of the audio tracks; ?videos=1: list of the videos once scanned."""
+    if not current_scan or current_scan.id != id:
+        raise RequestError(404, i18n.t("err.unknown_analysis"))
+    return 200, current_scan.to_dict("videos" in req.query)
+
+
+@route("POST", "/api/folder/{id}/cancel")
+def cancel_scan(req, id):
+    if current_scan and current_scan.id == id:
+        current_scan.cancel()
+    return 200, {"ok": True}
+
+
+# --- batches ---
+@route("GET", "/api/batches")
+def list_batches(req):
+    return 200, [b.summary() for b in reversed(list(manager.batches.values()))]
+
+
+@route("POST", "/api/batches")
+def create_batch(req):
+    """{root, videos: [{path, language}], transcription?, translator?, languages?, destination?, output_dir?, pause?,
+    redo?, stop?, review?, replace?}"""
+    d = req.json()
+    videos = [v for v in d.get("videos") or [] if v.get("path")]
+    if not videos:
+        raise RequestError(400, i18n.t("err.no_video_selected"))
+    options = {k: d.get(k) for k in ("transcription", "translator", "languages", "destination", "output_dir", "pause",
+                                     "redo", "stop", "review", "replace") if d.get(k) is not None}
+    if "languages" in options:
+        options["languages"] = language.normalize_codes(options["languages"])
+    _check_stop(options.get("stop"))
+    if options.get("stop") == "validation" or options.get("review"):
+        options["pause"] = True    # the proposed names are checked before translation, whatever the pause setting
+    return 201, manager.create_batch(str(d.get("root") or Path(videos[0]["path"]).parent), videos, options).summary()
+
+
+@route("GET", "/api/batches/last")
+def last_batch(req):
+    """Batch left unfinished at the previous session."""
+    return 200, {"last": manager.last_batch()}
+
+
+@route("POST", "/api/batches/last/forget")
+def forget_last_batch(req):
+    manager.forget_last_batch()
+    return 200, {"ok": True}
+
+
+@route("POST", "/api/batches/load")
+def load_batch(req):
+    """{file}: reads a subtitles.batch.json back (resume after an interruption) → suspended batch, to resume."""
+    try:
+        return 200, manager.load_batch((req.json().get("file") or "").strip().strip('"')).summary()
+    except source.SourceError as e:
+        raise RequestError(400, str(e)) from e
+
+
+@route("GET", "/api/batches/{id}")
+def get_batch(req, id):
+    batch = manager.batch(id)
+    if batch is None:
+        raise RequestError(404, i18n.t("err.unknown_batch"))
+    return 200, batch.summary()
+
+
+@route("GET", "/api/batches/{id}/estimate")
+def estimate_batch(req, id):
+    """?languages=fr,en"""
+    if manager.batch(id) is None:
+        raise RequestError(404, i18n.t("err.unknown_batch"))
+    return 200, manager.estimate_batch(id, req.arg("languages")) or {}
+
+
+@route("GET", "/api/batches/{id}/review")
+def review_batch(req, id):
+    """?path=: names to check."""
+    r = manager.batch_proposals(id, req.arg("path"))
+    if r is None:
+        raise RequestError(404, i18n.t("err.unknown_batch"))
+    return 200, r
+
+
+@route("POST", "/api/batches/{id}/validate")
+def validate_batch(req, id):
+    """{decisions: [{transcribed, spelling, french, accept}]}"""
+    r = manager.validate_names(id, req.json().get("decisions") or [])
+    if r is None:
+        raise RequestError(404, i18n.t("err.unknown_batch"))
+    return 200, {**r, "batch": manager.batch(id).summary()}
+
+
+def _check_stop(stop):
+    if stop not in (None, *steps.STOPS):
+        raise RequestError(400, i18n.t("err.unknown_stop_step"))
+
+
+def _batch_after(id: str, ok: bool, action: str):
+    """Answer of an action on a batch: its new state, or 409 if the batch refused it."""
+    if not ok:
+        raise RequestError(409, i18n.t("err.batch_action", action=action))
+    return 200, manager.batch(id).summary()
+
+
+@route("POST", "/api/batches/{id}/{action:suspend|cancel}")
+def suspend_or_cancel_batch(req, id, action):
+    return _batch_after(id, getattr(manager, "batch_" + action)(id), action)
+
+
+@route("POST", "/api/batches/{id}/translate")
+def translate_batch(req, id):
+    """{translator?, languages?, stop?}"""
+    d = req.json()
+    _check_stop(d.get("stop"))
+    return _batch_after(id, manager.batch_translate(id, d.get("translator"), d.get("languages"), d.get("stop")), "translate")
+
+
+@route("POST", "/api/batches/{id}/resume")
+def resume_batch(req, id):
+    """{translator?, transcription?, languages?, pause?, stop?}"""
+    return _batch_after(id, manager.batch_resume(id, req.json()), "resume")
+
+
+@route("POST", "/api/batches/{id}/goal")
+def batch_goal(req, id):
+    """{stop, replace?}: translation (subtitles only) or mux (subtitles + dubbing)."""
+    d = req.json()
+    return _batch_after(id, manager.batch_goal(id, d.get("stop") or "", d.get("replace")), "goal")
+
+
+@route("POST", "/api/batches/{id}/continue")
+def continue_batch(req, id):
+    """{path}: one video up to the end of what the batch must produce, before the others."""
+    return _batch_after(id, manager.batch_continue(id, req.json().get("path") or ""), "continue")
+
+
+@route("POST", "/api/batches/{id}/retry")
+def retry_batch(req, id):
+    """{path?}"""
+    return _batch_after(id, manager.batch_retry(id, req.json().get("path")), "retry")
+
+
+# --- working folders, files ---
+@route("GET", "/api/cleanup")
+def cleanup_summary(req):
+    """?output_dir=: size of the working folders per category."""
+    cfg = config.load()
+    root = Path(req.arg("output_dir", "") or cfg["output_dir"]) / ".work"
+    return 200, {"root": str(root), "categories": cleanup.summary(root), "options": cleanup.options(cfg)}
+
+
+@route("POST", "/api/cleanup")
+def cleanup_run(req):
+    """{options, output_dir?} → deleted per category."""
+    d = req.json()
+    cfg = config.load()
+    opts = {**cleanup.options(cfg), **{k: v for k, v in (d.get("options") or {}).items() if k in cleanup.DEFAULTS}}
+    root = Path(d.get("output_dir") or cfg["output_dir"]) / ".work"
+    if manager.current():
+        raise RequestError(409, i18n.t("err.task_running_cleanup"))
+    return 200, {"root": str(root), "deleted": cleanup.clean_all(root, opts), "categories": cleanup.summary(root)}
+
+
+@route("PUT", "/api/files")
+def upload_file(req):
+    """?name=<name>&output_dir=, body = the file (drag and drop) → copied into the output folder."""
+    name = Path(unquote(req.arg("name", ""))).name
+    if not name:
+        raise RequestError(400, i18n.t("err.missing_name"))
+    target_dir = Path(req.arg("output_dir", "") or config.load()["output_dir"])
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / name
+    if target.exists() and target.stat().st_size == req.length:
+        while req.read(1 << 20):        # already there, same size: not rewritten, but the body is read
+            pass
+        return 200, {"path": str(target), "existed": True}
+    with open(target, "wb") as f:
+        while block := req.read(1 << 20):
+            f.write(block)
+    if req.consumed < req.length:
+        target.unlink(missing_ok=True)
+        raise RequestError(400, i18n.t("err.incomplete_upload"))
+    return 200, {"path": str(target), "existed": False}
+
+
+# --- system, engines ---
+@route("POST", "/api/local-transcription/stop")
+def stop_local_transcription(req):
+    """Stops the local transcription server started from here."""
+    for m in config.load().get("transcriptions", []):
+        if m.get("command"):
+            local_transcription.LocalServer.for_engine(m).stop()
+    return 200, {"ok": True}
+
+
+@route("POST", "/api/dialog")
+def system_dialog(req):
+    """{type: "file"|"folder"|"batch"|"source_folder", start?} → {path}"""
+    d = req.json()
+    return 200, {"path": dialog(d.get("type", "file"), d.get("start", ""))}
+
+
+@route("POST", "/api/open")
+def open_in_file_manager(req):
+    """{path}: opens the folder (file selected) in the file manager."""
+    open_path(req.json().get("path", ""))
+    return 200, {"ok": True}
+
+
+@route("POST", "/api/test")
+def test_an_engine(req):
+    """{kind: "transcription"|"translator", engine: {...}}"""
+    d = req.json()
+    try:
+        return 200, test_engine(d.get("kind", ""), d.get("engine") or {})
+    except (transcription.TranscriptionError, translation.TranslationError, config.ConfigError,
+            local_transcription.LocalServerError) as e:
+        return 200, {"ok": False, "detail": str(e)}
+
+
+@route("POST", "/api/youtube")
+def youtube(req):
+    """{url, output_dir?}: title, duration and target file, without downloading."""
+    d = req.json()
+    cfg = config.load()
+    try:
+        i = source.youtube_info(d.get("url", ""), cfg.get("youtube", {}).get("command", ["yt-dlp"]),
+                                Path(d.get("output_dir") or cfg["output_dir"]))
+    except source.SourceError as e:
+        return 200, {"ok": False, "detail": str(e)}
+    return 200, {"ok": True, "title": i.get("title"), "duration": i.get("duration"), "video": str(i["video"]),
+                 "exists": i["video"].exists()}
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
     server_version = "subtitles"
@@ -220,301 +656,43 @@ class Handler(BaseHTTPRequestHandler):
             return
         log.info("%s %s", self.command, self.path)
 
-    # --- helpers ---
-    def _json(self, code: int, data):
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _json_body(self) -> dict:
-        n = int(self.headers.get("Content-Length") or 0)
-        if n > 5_000_000:
-            raise RequestError(413, i18n.t("err.body_too_large"))
-        return json.loads(self.rfile.read(n) or b"{}")
-
-    def _file(self, path: str):
-        name = "index.html" if path in ("", "/") else path.removeprefix("/static/")
-        f = (STATIC / name).resolve()
-        if not f.is_file() or STATIC not in f.parents:
-            return self._json(404, {"error": i18n.t("err.not_found")})
-        body = f.read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", TYPES.get(f.suffix, "application/octet-stream"))
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _catalog(self, name: str):
-        """Translation catalog of a language (the same files as the messages of the server)."""
-        code = name.removesuffix(".json")
-        if code not in i18n.available():
-            return self._json(404, {"error": i18n.t("err.not_found")})
-        body = (i18n.LOCALES_DIR / f"{code}.json").read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-        self.wfile.write(body)
-
-    # --- routes ---
     def do_GET(self):
-        u = urlparse(self.path)
-        try:
-            if u.path == "/" or u.path.startswith("/static/"):
-                return self._file(u.path)
-            if u.path.startswith("/locales/"):
-                return self._catalog(u.path.removeprefix("/locales/"))
-            if u.path == "/api/languages":
-                setting = config.load().get("ui_language") or ""
-                return self._json(200, {"available": i18n.available(), "setting": i18n.pick(setting) or ""})
-            if u.path == "/api/health":
-                return self._json(200, health())
-            cfg = config.load()
-            if u.path == "/api/status":
-                current = manager.current() or next(iter(reversed(manager.paused())), None)
-                running = current.summary() if current else None
-                batch = manager.active_batch()
-                return self._json(200, {"batch": batch.summary() if batch else None,
-                                        "active_transcription": cfg.get("active_transcription"), "active_translator": cfg.get("active_translator"),
-                                        "output_dir": cfg.get("output_dir"), "language": cfg.get("language", ""),
-                                        "local_transcription": local_transcription_state(cfg), "local_ai": local_ai_state(cfg),
-                                        "task": running, "user_config": str(config.USER_FILE)})
-            if u.path == "/api/config":
-                return self._json(200, cfg)
-            if u.path == "/api/tasks":
-                return self._json(200, manager.all_tasks())
-            if u.path == "/api/cleanup":
-                root = Path(parse_qs(u.query).get("output_dir", [""])[0] or cfg["output_dir"]) / ".work"
-                return self._json(200, {"root": str(root), "categories": cleanup.summary(root), "options": cleanup.options(cfg)})
-            if u.path == "/api/batches":
-                return self._json(200, [b.summary() for b in reversed(list(manager.batches.values()))])
-            if u.path == "/api/batches/last":
-                return self._json(200, {"last": manager.last_batch()})
-            m = re.fullmatch(r"/api/folder/([0-9a-f]+)", u.path)
-            if m:
-                if not current_scan or current_scan.id != m.group(1):
-                    return self._json(404, {"error": i18n.t("err.unknown_analysis")})
-                return self._json(200, current_scan.to_dict("videos" in parse_qs(u.query)))
-            m = re.fullmatch(r"/api/batches/([0-9a-f]+)/review", u.path)
-            if m:
-                r = manager.batch_proposals(m.group(1), parse_qs(u.query).get("path", [None])[0])
-                return self._json(200, r) if r is not None else self._json(404, {"error": i18n.t("err.unknown_batch")})
-            m = re.fullmatch(r"/api/batches/([0-9a-f]+)(/estimate)?", u.path)
-            if m:
-                batch = manager.batch(m.group(1))
-                if batch is None:
-                    return self._json(404, {"error": i18n.t("err.unknown_batch")})
-                if m.group(2):
-                    q = parse_qs(u.query)
-                    return self._json(200, manager.estimate_batch(batch.id, q["languages"][0] if "languages" in q else None) or {})
-                return self._json(200, batch.summary())
-            m = re.fullmatch(r"/api/tasks/([0-9a-f]+)/estimate", u.path)
-            if m:
-                q = parse_qs(u.query)
-                e = manager.estimate(m.group(1), q["languages"][0] if "languages" in q else None)
-                if e is None:
-                    return self._json(404, {"error": i18n.t("err.task_not_prepared")})
-                return self._json(200, e)
-            m = re.fullmatch(r"/api/tasks/([0-9a-f]+)", u.path)
-            if m:
-                d = manager.detail(m.group(1), int(parse_qs(u.query).get("since", ["0"])[0]))
-                if d is None:
-                    return self._json(404, {"error": i18n.t("err.unknown_task")})
-                return self._json(200, d)
-            return self._json(404, {"error": i18n.t("err.not_found")})
-        except RequestError as e:
-            return self._json(e.code, {"error": str(e)})
+        self._dispatch()
 
-    def do_POST(self):
-        u = urlparse(self.path)
-        try:
-            if u.path == "/api/tasks":
-                d = self._json_body()
-                src = (d.get("source") or "").strip().strip('"')
-                if not src:
-                    raise RequestError(400, i18n.t("err.empty_source"))
-                if not source.is_url(src) and Path(src).is_dir():
-                    return self._json(409, {"error": i18n.t("err.is_folder"), "folder": True})
-                options = {"source": src, "transcription": d.get("transcription") or "", "translator": d.get("translator") or "",
-                           "language": d.get("language"), "output_dir": (d.get("output_dir") or "").strip(), "redo": bool(d.get("redo"))}
-                if d.get("languages") is not None:
-                    options["languages"] = language.normalize_codes(d["languages"])
-                if isinstance(d.get("destination"), dict):
-                    options["destination"] = {k: bool(d["destination"].get(k)) for k in ("next_to_video", "output_dir")}
-                if d.get("pause") is not None:
-                    options["pause"] = bool(d["pause"])
-                if d.get("until") == "mux":
-                    options.update(until="mux", continued=True, replace=bool(d.get("replace")))
-                t = manager.add(options)
-                return self._json(201, t.summary())
-            m = re.fullmatch(r"/api/tasks/([0-9a-f]+)/translate", u.path)
-            if m:
-                d = self._json_body()
-                t = manager.resume(m.group(1), d.get("translator"), d.get("languages"))
-                if t is None:
-                    raise RequestError(409, i18n.t("err.task_not_paused"))
-                return self._json(200, t.summary())
-            if u.path == "/api/folder":
-                d = self._json_body()
-                path = Path((d.get("path") or "").strip().strip('"'))
-                if not path.is_dir():
-                    raise RequestError(400, i18n.t("err.folder_not_found", path=path))
-                global current_scan
-                if current_scan:
-                    current_scan.cancel()
-                current_scan = folder.FolderScan(path, recursive=d.get("recursive", True))
-                current_scan.start()
-                return self._json(202, current_scan.to_dict())
-            m = re.fullmatch(r"/api/folder/([0-9a-f]+)/cancel", u.path)
-            if m:
-                if current_scan and current_scan.id == m.group(1):
-                    current_scan.cancel()
-                return self._json(200, {"ok": True})
-            if u.path == "/api/batches":
-                d = self._json_body()
-                videos = [v for v in d.get("videos") or [] if v.get("path")]
-                if not videos:
-                    raise RequestError(400, i18n.t("err.no_video_selected"))
-                options = {k: d.get(k) for k in ("transcription", "translator", "languages", "destination", "output_dir", "pause", "redo", "stop", "review", "replace") if d.get(k) is not None}
-                if "languages" in options:
-                    options["languages"] = language.normalize_codes(options["languages"])
-                if options.get("stop") not in (None, *steps.STOPS):
-                    raise RequestError(400, i18n.t("err.unknown_stop_step"))
-                if options.get("stop") == "validation" or options.get("review"):
-                    options["pause"] = True    # the proposed names are checked before translation, whatever the pause setting
-                return self._json(201, manager.create_batch(str(d.get("root") or Path(videos[0]["path"]).parent), videos, options).summary())
-            if u.path == "/api/batches/last/forget":
-                manager.forget_last_batch()
-                return self._json(200, {"ok": True})
-            if u.path == "/api/batches/load":
-                d = self._json_body()
-                try:
-                    return self._json(200, manager.load_batch((d.get("file") or "").strip().strip('"')).summary())
-                except source.SourceError as e:
-                    raise RequestError(400, str(e)) from e
-            m = re.fullmatch(r"/api/batches/([0-9a-f]+)/validate", u.path)
-            if m:
-                r = manager.validate_names(m.group(1), self._json_body().get("decisions") or [])
-                if r is None:
-                    raise RequestError(404, i18n.t("err.unknown_batch"))
-                return self._json(200, {**r, "batch": manager.batch(m.group(1)).summary()})
-            m = re.fullmatch(r"/api/batches/([0-9a-f]+)/(suspend|resume|cancel|translate|retry|continue|goal)", u.path)
-            if m:
-                ident, action = m.groups()
-                if action == "translate":
-                    d = self._json_body()
-                    if d.get("stop") not in (None, *steps.STOPS):
-                        raise RequestError(400, i18n.t("err.unknown_stop_step"))
-                    ok = manager.batch_translate(ident, d.get("translator"), d.get("languages"), d.get("stop"))
-                elif action == "goal":
-                    d = self._json_body()
-                    ok = manager.batch_goal(ident, d.get("stop") or "", d.get("replace"))
-                elif action == "continue":
-                    ok = manager.batch_continue(ident, self._json_body().get("path") or "")
-                elif action == "retry":
-                    ok = manager.batch_retry(ident, self._json_body().get("path"))
-                elif action == "resume":
-                    ok = manager.batch_resume(ident, self._json_body())
-                else:
-                    ok = getattr(manager, "batch_" + action)(ident)
-                if not ok:
-                    raise RequestError(409, i18n.t("err.batch_action", action=action))
-                return self._json(200, manager.batch(ident).summary())
-            if u.path == "/api/cleanup":
-                d = self._json_body()
-                cfg = config.load()
-                opts = {**cleanup.options(cfg), **{k: v for k, v in (d.get("options") or {}).items() if k in cleanup.DEFAULTS}}
-                root = Path(d.get("output_dir") or cfg["output_dir"]) / ".work"
-                if manager.current():
-                    raise RequestError(409, i18n.t("err.task_running_cleanup"))
-                return self._json(200, {"root": str(root), "deleted": cleanup.clean_all(root, opts),
-                                        "categories": cleanup.summary(root)})
-            m = re.fullmatch(r"/api/tasks/([0-9a-f]+)/retry", u.path)
-            if m:
-                t = manager.retry(m.group(1))
-                return self._json(200, {"id": t.id}) if t else self._json(404, {"error": i18n.t("err.task_not_in_error")})
-            m = re.fullmatch(r"/api/tasks/([0-9a-f]+)/cancel", u.path)
-            if m:
-                return self._json(200, {"ok": manager.cancel(m.group(1))})
-            if u.path == "/api/local-transcription/stop":
-                cfg = config.load()
-                for m in cfg.get("transcriptions", []):
-                    if m.get("command"):
-                        local_transcription.LocalServer.for_engine(m).stop()
-                return self._json(200, {"ok": True})
-            if u.path == "/api/dialog":
-                d = self._json_body()
-                return self._json(200, {"path": dialog(d.get("type", "file"), d.get("start", ""))})
-            if u.path == "/api/open":
-                open_path(self._json_body().get("path", ""))
-                return self._json(200, {"ok": True})
-            if u.path == "/api/test":
-                d = self._json_body()
-                try:
-                    return self._json(200, test_engine(d.get("kind", ""), d.get("engine") or {}))
-                except (transcription.TranscriptionError, translation.TranslationError, config.ConfigError,
-                        local_transcription.LocalServerError) as e:
-                    return self._json(200, {"ok": False, "detail": str(e)})
-            if u.path == "/api/youtube":
-                d = self._json_body()
-                cfg = config.load()
-                try:
-                    i = source.youtube_info(d.get("url", ""), cfg.get("youtube", {}).get("command", ["yt-dlp"]),
-                                            Path(d.get("output_dir") or cfg["output_dir"]))
-                except source.SourceError as e:
-                    return self._json(200, {"ok": False, "detail": str(e)})
-                return self._json(200, {"ok": True, "title": i.get("title"), "duration": i.get("duration"), "video": str(i["video"]),
-                                        "exists": i["video"].exists()})
-            return self._json(404, {"error": i18n.t("err.not_found")})
-        except RequestError as e:
-            return self._json(e.code, {"error": str(e)})
-        except (ValueError, KeyError) as e:
-            return self._json(400, {"error": i18n.t("err.invalid_request", error=e)})
+    do_POST = do_PUT = do_GET
 
-    def do_PUT(self):
-        u = urlparse(self.path)
+    def _dispatch(self):
+        url = urlparse(self.path)
+        req = None
         try:
-            if u.path == "/api/config":
-                cfg = self._json_body()
-                config.save(cfg)
-                i18n.set_language(cfg.get("ui_language"))
-                return self._json(200, config.load())
-            if u.path == "/api/files":
-                name = Path(unquote(parse_qs(u.query).get("name", [""])[0])).name
-                if not name:
-                    raise RequestError(400, i18n.t("err.missing_name"))
-                cfg = config.load()
-                target_dir = Path(parse_qs(u.query).get("output_dir", [""])[0] or cfg["output_dir"])
-                target_dir.mkdir(parents=True, exist_ok=True)
-                target = target_dir / name
-                size = int(self.headers.get("Content-Length") or 0)
-                if target.exists() and target.stat().st_size == size:
-                    self.rfile.read(size)       # already there, same size: not rewritten
-                    return self._json(200, {"path": str(target), "existed": True})
-                left = size
-                with open(target, "wb") as f:
-                    while left > 0:
-                        block = self.rfile.read(min(1 << 20, left))
-                        if not block:
-                            break
-                        f.write(block)
-                        left -= len(block)
-                if left:
-                    target.unlink(missing_ok=True)
-                    raise RequestError(400, i18n.t("err.incomplete_upload"))
-                return self._json(200, {"path": str(target), "existed": False})
-            return self._json(404, {"error": i18n.t("err.not_found")})
+            req = Request(self, url)
+            found = resolve(self.command, url.path)
+            if found is None:
+                raise _not_found()
+            fn, params = found
+            code, data = fn(req, **params)
         except RequestError as e:
-            return self._json(e.code, {"error": str(e)})
+            code, data = e.code, {"error": str(e)}
         except config.ConfigError as e:
-            return self._json(400, {"error": str(e)})
+            code, data = 400, {"error": str(e)}
         except (ValueError, KeyError) as e:
-            return self._json(400, {"error": i18n.t("err.invalid_request", error=e)})
+            code, data = 400, {"error": i18n.t("err.invalid_request", error=e)}
+        if req:
+            req.drain()
+        self._send(code, data)
+
+    def _send(self, code: int, data):
+        if isinstance(data, Raw):
+            body, content_type = data
+        else:
+            body, content_type = json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8"
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        if isinstance(data, Raw):
+            self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
 
 
 def _watch_idle(server):
